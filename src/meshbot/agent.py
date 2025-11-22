@@ -537,6 +537,25 @@ class MeshBotAgent:
         except Exception as e:
             logger.warning(f"Could not retrieve own public key: {e}")
 
+        # Get bot's own node name and use it as activation phrase
+        try:
+            node_name = await self.meshcore.get_own_node_name()
+            if node_name:
+                # Use the node name with @ prefix as activation phrase
+                self.activation_phrase = f"@{node_name}".lower()
+                logger.info(
+                    f"Using node name as activation phrase: {self.activation_phrase}"
+                )
+            else:
+                logger.info(
+                    f"Node name not set, using configured activation phrase: {self.activation_phrase}"
+                )
+        except Exception as e:
+            logger.warning(f"Could not retrieve node name: {e}")
+            logger.info(
+                f"Using configured activation phrase: {self.activation_phrase}"
+            )
+
         # Sync companion node clock
         try:
             await self.meshcore.sync_time()

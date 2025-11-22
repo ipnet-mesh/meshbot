@@ -95,6 +95,7 @@ pytest tests/test_basic.py -v
    - Event-based message handling (DMs and channels)
    - Network event tracking (ADVERTISEMENT, NEW_CONTACT, PATH_UPDATE, NEIGHBOURS_RESPONSE, STATUS_RESPONSE)
    - Automatic node name discovery from contacts
+   - **Automatic activation phrase from node name** - queries bot's own `adv_name` from `self_info` on startup
    - Node name mapping storage in `logs/node_names.txt`
    - Network events logged to `logs/network_events.txt` (max 100 events)
 
@@ -107,6 +108,7 @@ pytest tests/test_basic.py -v
    - Structured responses
    - Automatic message splitting for MeshCore length limits
    - Smart message routing (DM vs channel)
+   - **Smart activation phrase** - automatically uses `@{node_name}` if available, falls back to configured phrase
    - API request limits (max 5 requests per message via UsageLimits)
    - Network context injection (last 5 network events included in prompts)
    - Graceful handling of usage limit errors
