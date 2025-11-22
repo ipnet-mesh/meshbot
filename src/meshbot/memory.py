@@ -7,11 +7,13 @@ import os
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
-
-from memori import ConfigManager, Memori
+from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 from meshbot.meshcore_interface import MeshCoreMessage
+
+# Lazy import Memori to avoid import-time blocking
+if TYPE_CHECKING:
+    from memori import ConfigManager, Memori
 
 logger = logging.getLogger(__name__)
 
@@ -82,41 +84,30 @@ class MemoryManager:
         if openai_api_key is None:
             openai_api_key = os.getenv("OPENAI_API_KEY")
 
-        # Only initialize Memori if we have an API key
+        # Store Memori config but don't initialize yet (lazy loading)
+        # This avoids blocking on import
+        self.memori = None
+        self.memori_enabled = False
+        self._memori_config = None
+
         if openai_api_key:
-            try:
-                memori_kwargs = {
-                    "database_connect": database_url,
-                    "conscious_ingest": True,  # Enable working memory
-                    "auto_ingest": True,  # Enable dynamic search
-                    "openai_api_key": openai_api_key,
-                }
+            self._memori_config = {
+                "database_connect": database_url,
+                "conscious_ingest": True,  # Enable working memory
+                "auto_ingest": True,  # Enable dynamic search
+                "openai_api_key": openai_api_key,
+            }
 
-                # Add base_url if using OpenAI-compatible endpoint
-                if base_url:
-                    memori_kwargs["base_url"] = base_url
-                    logger.debug(f"Using custom base URL for Memori: {base_url}")
+            # Add base_url if using OpenAI-compatible endpoint
+            if base_url:
+                self._memori_config["base_url"] = base_url
 
-                self.memori = Memori(**memori_kwargs)
-                self.memori_enabled = False
-
-                log_msg = f"Initialized Memori with database: {database_url}"
-                if base_url:
-                    log_msg += f" and custom endpoint: {base_url}"
-                logger.info(log_msg)
-            except Exception as e:
-                logger.warning(
-                    f"Failed to initialize Memori: {e}. Memory features disabled."
-                )
-                self.memori = None
-                self.memori_enabled = False
+            logger.debug("Memori configuration saved for lazy initialization")
         else:
             logger.info(
                 "No LLM API key provided, Memori features disabled. "
                 "Set LLM_API_KEY environment variable to enable memory features."
             )
-            self.memori = None
-            self.memori_enabled = False
 
     async def load(self) -> None:
         """Load user metadata from storage."""
@@ -185,6 +176,27 @@ class MemoryManager:
 
     def enable_memori(self) -> None:
         """Enable Memori memory interception for LLM calls."""
+        # Lazy initialization of Memori to avoid import-time blocking
+        if self._memori_config and not self.memori:
+            try:
+                logger.debug("Lazy loading Memori library...")
+                from memori import Memori
+
+                logger.debug("Creating Memori instance...")
+                self.memori = Memori(**self._memori_config)
+
+                log_msg = f"Initialized Memori with database: {self._memori_config['database_connect']}"
+                if "base_url" in self._memori_config:
+                    log_msg += f" and custom endpoint: {self._memori_config['base_url']}"
+                logger.info(log_msg)
+            except Exception as e:
+                logger.warning(
+                    f"Failed to initialize Memori: {e}. Memory features disabled."
+                )
+                self.memori = None
+                self._memori_config = None
+                return
+
         if self.memori and not self.memori_enabled:
             try:
                 self.memori.enable()
