@@ -18,6 +18,9 @@ class MeshCoreConfig:
     connection_type: str = field(
         default_factory=lambda: os.getenv("MESHCORE_CONNECTION_TYPE", "mock")
     )
+    node_name: Optional[str] = field(
+        default_factory=lambda: os.getenv("MESHCORE_NODE_NAME", "MeshBot")
+    )
     port: Optional[str] = field(default_factory=lambda: os.getenv("MESHCORE_PORT"))
     baudrate: int = field(
         default_factory=lambda: int(os.getenv("MESHCORE_BAUDRATE", "115200"))

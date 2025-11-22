@@ -86,6 +86,11 @@ class MeshCoreInterface(ABC):
         pass
 
     @abstractmethod
+    async def set_node_name(self, name: str) -> bool:
+        """Set the node's advertised name."""
+        pass
+
+    @abstractmethod
     async def get_own_public_key(self) -> Optional[str]:
         """Get the bot's own public key/identifier."""
         pass
@@ -191,6 +196,11 @@ class MockMeshCoreInterface(MeshCoreInterface):
 
         logger.info("Mock: Sending local advertisement")
         await asyncio.sleep(0.1)
+        return True
+
+    async def set_node_name(self, name: str) -> bool:
+        """Mock set node name (does nothing)."""
+        logger.info(f"Mock: Would set node name to: {name}")
         return True
 
     def is_connected(self) -> bool:
@@ -477,6 +487,26 @@ class RealMeshCoreInterface(MeshCoreInterface):
             return result is not None
         except Exception as e:
             logger.error(f"Failed to send local advert: {e}")
+            return False
+
+    async def set_node_name(self, name: str) -> bool:
+        """Set the node's advertised name."""
+        if not self._connected or not self._meshcore:
+            return False
+
+        try:
+            logger.info(f"Setting node name to: {name}")
+            result = await self._meshcore.commands.set_name(name)
+            if result is not None:
+                # Update our cached node name
+                self._own_node_name = name
+                logger.info(f"Node name set successfully to: {name}")
+                return True
+            else:
+                logger.warning("set_name command returned None")
+                return False
+        except Exception as e:
+            logger.error(f"Failed to set node name: {e}")
             return False
 
     def add_message_handler(self, handler: Callable[[MeshCoreMessage], Any]) -> None:
