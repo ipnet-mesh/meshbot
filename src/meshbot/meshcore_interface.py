@@ -231,12 +231,16 @@ class RealMeshCoreInterface(MeshCoreInterface):
             logger.info("Starting auto message fetching...")
             await self._meshcore.start_auto_message_fetching()
 
+            # Also start a manual polling task as backup
+            logger.info("Starting manual message polling task...")
+            asyncio.create_task(self._poll_messages())
+
             # Debug: Subscribe to multiple event types to see what's being received
             def debug_event_handler(event):
                 logger.info(f"DEBUG: Received event type: {event.type}, payload: {event.payload}")
 
             logger.info("Subscribing to debug events...")
-            for event_type in [EventType.CONTACT_MSG_RECV, EventType.CHANNEL_MSG_RECV, EventType.RAW_DATA]:
+            for event_type in [EventType.CONTACT_MSG_RECV, EventType.CHANNEL_MSG_RECV, EventType.MESSAGES_WAITING, EventType.NO_MORE_MSGS, EventType.RAW_DATA]:
                 try:
                     self._meshcore.subscribe(event_type, debug_event_handler)
                     logger.info(f"Subscribed to {event_type}")
@@ -274,6 +278,19 @@ class RealMeshCoreInterface(MeshCoreInterface):
             finally:
                 self._meshcore = None
                 self._connected = False
+
+    async def _poll_messages(self) -> None:
+        """Manually poll for messages every few seconds as backup."""
+        logger.info("Message polling task started")
+        while self._connected and self._meshcore:
+            try:
+                logger.debug("Manually polling for messages...")
+                result = await self._meshcore.commands.get_msg()
+                logger.debug(f"Poll result: {result.type}, payload: {result.payload}")
+                await asyncio.sleep(5)  # Poll every 5 seconds
+            except Exception as e:
+                logger.error(f"Error in message polling: {e}")
+                await asyncio.sleep(5)
 
     async def send_message(self, destination: str, message: str) -> bool:
         """Send message via real MeshCore."""
