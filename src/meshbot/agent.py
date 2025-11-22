@@ -76,6 +76,17 @@ class MeshBotAgent:
         """Initialize all components."""
         logger.info("Initializing MeshBot agent...")
 
+        # Set up environment variables for OpenAI-compatible endpoints FIRST
+        # This must happen before any component initialization
+        import os
+
+        # Map LLM_API_KEY to OPENAI_API_KEY for pydantic-ai and Memori
+        # These libraries expect OPENAI_API_KEY, but we use LLM_API_KEY for provider-agnostic config
+        llm_api_key = os.getenv("LLM_API_KEY")
+        if llm_api_key and not os.getenv("OPENAI_API_KEY"):
+            os.environ["OPENAI_API_KEY"] = llm_api_key
+            logger.debug("Set OPENAI_API_KEY from LLM_API_KEY")
+
         # Initialize MeshCore interface
         from .meshcore_interface import ConnectionType
 
@@ -110,16 +121,6 @@ class MeshBotAgent:
             )
         else:
             instructions = base_instructions
-
-        # Set up environment variables for OpenAI-compatible endpoints
-        import os
-
-        # Map LLM_API_KEY to OPENAI_API_KEY for pydantic-ai
-        # Pydantic-ai expects OPENAI_API_KEY, but we use LLM_API_KEY for provider-agnostic config
-        llm_api_key = os.getenv("LLM_API_KEY")
-        if llm_api_key and not os.getenv("OPENAI_API_KEY"):
-            os.environ["OPENAI_API_KEY"] = llm_api_key
-            logger.debug("Set OPENAI_API_KEY from LLM_API_KEY")
 
         # Set base URL for custom endpoints if provided
         if self.base_url:
