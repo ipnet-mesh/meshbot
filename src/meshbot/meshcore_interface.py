@@ -316,15 +316,19 @@ class RealMeshCoreInterface(MeshCoreInterface):
         """Handle incoming message events."""
         try:
             payload = event.payload
+            logger.debug(f"Received message payload: {payload}")
 
             # Extract message fields from MeshCore event payload
             sender = payload.get("pubkey_prefix", "")
             content = payload.get("text", "")
             sender_timestamp = payload.get("sender_timestamp", 0)
             msg_type = payload.get("type", "PRIV")
+            channel = payload.get("channel", "0")  # Extract channel ID
 
             # Map MeshCore message types to our types
             message_type = "direct" if msg_type == "PRIV" else "channel"
+
+            logger.debug(f"Parsed message - sender: {sender}, type: {message_type}, channel: {channel}, content: {content}")
 
             message = MeshCoreMessage(
                 sender=sender,
@@ -332,6 +336,7 @@ class RealMeshCoreInterface(MeshCoreInterface):
                 content=content,
                 timestamp=float(sender_timestamp) if sender_timestamp else asyncio.get_event_loop().time(),
                 message_type=message_type,
+                channel=str(channel) if channel is not None else None,
             )
 
             # Call all registered handlers
