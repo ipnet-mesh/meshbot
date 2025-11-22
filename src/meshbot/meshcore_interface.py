@@ -196,6 +196,7 @@ class RealMeshCoreInterface(MeshCoreInterface):
         try:
             from meshcore import (  # type: ignore
                 BLEConnection,
+                EventType,
                 MeshCore,
                 SerialConnection,
                 TCPConnection,
@@ -230,7 +231,7 @@ class RealMeshCoreInterface(MeshCoreInterface):
 
             # Set up message event subscription
             self._meshcore.subscribe(
-                self._meshcore.dispatcher.EventType.MESSAGE, self._on_message_received
+                EventType.CONTACT_MSG_RECV, self._on_message_received
             )
 
             self._connected = True
