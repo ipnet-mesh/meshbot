@@ -205,3 +205,9 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# MeshBot specific data files
+memory_metadata.json
+memory.json
+memori_conversations.db
+*.db
