@@ -54,6 +54,7 @@ class MeshBotAgent:
         listen_channel: str = "0",
         custom_prompt: Optional[str] = None,
         base_url: Optional[str] = None,
+        max_message_length: int = 120,
         **meshcore_kwargs,
     ):
         self.model = model
@@ -63,6 +64,7 @@ class MeshBotAgent:
         self.listen_channel = listen_channel
         self.custom_prompt = custom_prompt
         self.base_url = base_url
+        self.max_message_length = max_message_length
         self.meshcore_kwargs = meshcore_kwargs
 
         # Initialize components
@@ -106,9 +108,13 @@ class MeshBotAgent:
         base_instructions = (
             "You are MeshBot, an AI assistant that communicates through the MeshCore network. "
             "You are helpful, concise, and knowledgeable. "
-            "Always be friendly and professional in your responses. "
-            "When users send 'ping', respond with 'pong'. "
-            "Keep responses relatively short and clear for network communication."
+            "MeshCore is a simple text messaging system with strict limitations:\n"
+            f"- Keep responses SHORT and TO THE POINT (max {self.max_message_length} chars)\n"
+            "- NO emoji, NO newlines, NO complex formatting\n"
+            "- Use plain text only\n"
+            "- Be direct and clear\n"
+            "- If you need to say more, keep it brief anyway\n"
+            "When users send 'ping', respond with 'pong'."
         )
 
         # Add custom prompt if provided
@@ -248,6 +254,59 @@ class MeshBotAgent:
 
         logger.info("MeshBot agent stopped")
 
+    def _split_message(self, message: str) -> List[str]:
+        """
+        Split a long message into chunks that fit within max_message_length.
+        Splits on word boundaries and adds (1/x) indicators.
+
+        Args:
+            message: The message to split
+
+        Returns:
+            List of message chunks
+        """
+        # Remove any newlines and extra whitespace
+        message = " ".join(message.split())
+
+        # If message fits, return as-is
+        if len(message) <= self.max_message_length:
+            return [message]
+
+        # Calculate how much space we need for " (X/Y)" suffix
+        # Worst case: " (99/99)" = 8 chars
+        suffix_space = 8
+        chunk_size = self.max_message_length - suffix_space
+
+        # Split into chunks on word boundaries
+        words = message.split()
+        chunks = []
+        current_chunk = []
+        current_length = 0
+
+        for word in words:
+            word_length = len(word) + (1 if current_chunk else 0)  # +1 for space
+
+            if current_length + word_length <= chunk_size:
+                current_chunk.append(word)
+                current_length += word_length
+            else:
+                # Save current chunk and start new one
+                if current_chunk:
+                    chunks.append(" ".join(current_chunk))
+                current_chunk = [word]
+                current_length = len(word)
+
+        # Add the last chunk
+        if current_chunk:
+            chunks.append(" ".join(current_chunk))
+
+        # Add (X/Y) indicators
+        total = len(chunks)
+        if total > 1:
+            chunks = [f"{chunk} ({i+1}/{total})" for i, chunk in enumerate(chunks)]
+
+        return chunks
+
     def _should_respond_to_message(self, message: MeshCoreMessage) -> bool:
         """
         Determine if the bot should respond to this message.
@@ -370,15 +429,25 @@ class MeshBotAgent:
                 if message.message_type == "channel":
                     # For channel messages, send back to the channel
                     destination = message.channel or "0"
-                    logger.info(f"Sending response to channel {destination}: {response}")
                 else:
                     # For DMs, send back to the sender
                     destination = message.sender
-                    logger.info(f"Sending response to {destination}: {response}")
 
-                await self.meshcore.send_message(destination, response)
+                # Split message if it's too long
+                message_chunks = self._split_message(response)
 
-                # Store assistant response in memory
+                logger.info(f"Sending {len(message_chunks)} message(s) to {destination}")
+
+                # Send all chunks
+                for i, chunk in enumerate(message_chunks):
+                    logger.debug(f"Sending chunk {i+1}/{len(message_chunks)}: {chunk}")
+                    await self.meshcore.send_message(destination, chunk)
+
+                    # Small delay between messages to avoid flooding
+                    if i < len(message_chunks) - 1:
+                        await asyncio.sleep(0.5)
+
+                # Store assistant response in memory (original full response)
                 # For channels, use channel as user_id; for DMs, use sender
                 user_id = destination if message.message_type == "channel" else message.sender
                 await self.memory.add_message(

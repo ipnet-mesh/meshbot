@@ -63,6 +63,9 @@ class AIConfig:
     listen_channel: str = field(
         default_factory=lambda: os.getenv("LISTEN_CHANNEL", "0")
     )
+    max_message_length: int = field(
+        default_factory=lambda: int(os.getenv("MAX_MESSAGE_LENGTH", "120"))
+    )
     custom_prompt_file: Optional[Path] = field(default=None)
 
     def __post_init__(self) -> None:
