@@ -108,10 +108,18 @@ class MeshBotAgent:
         else:
             instructions = base_instructions
 
-        # Set up base URL for OpenAI-compatible endpoints if provided
+        # Set up environment variables for OpenAI-compatible endpoints
         import os
+
+        # Map LLM_API_KEY to OPENAI_API_KEY for pydantic-ai
+        # Pydantic-ai expects OPENAI_API_KEY, but we use LLM_API_KEY for provider-agnostic config
+        llm_api_key = os.getenv("LLM_API_KEY")
+        if llm_api_key and not os.getenv("OPENAI_API_KEY"):
+            os.environ["OPENAI_API_KEY"] = llm_api_key
+            logger.debug("Set OPENAI_API_KEY from LLM_API_KEY")
+
+        # Set base URL for custom endpoints if provided
         if self.base_url:
-            # Set OPENAI_BASE_URL environment variable for pydantic-ai
             os.environ["OPENAI_BASE_URL"] = self.base_url
             logger.info(f"Using custom LLM base URL: {self.base_url}")
 
