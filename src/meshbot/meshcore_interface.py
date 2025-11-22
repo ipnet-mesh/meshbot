@@ -226,13 +226,33 @@ class RealMeshCoreInterface(MeshCoreInterface):
             )
 
             # Connect and start auto message fetching
+            logger.info("Connecting to MeshCore...")
             await self._meshcore.connect()
+            logger.info("Starting auto message fetching...")
             await self._meshcore.start_auto_message_fetching()
 
+            # Debug: Subscribe to multiple event types to see what's being received
+            def debug_event_handler(event):
+                logger.info(f"DEBUG: Received event type: {event.type}, payload: {event.payload}")
+
+            logger.info("Subscribing to debug events...")
+            for event_type in [EventType.CONTACT_MSG_RECV, EventType.CHANNEL_MSG_RECV, EventType.RAW_DATA]:
+                try:
+                    self._meshcore.subscribe(event_type, debug_event_handler)
+                    logger.info(f"Subscribed to {event_type}")
+                except Exception as e:
+                    logger.warning(f"Failed to subscribe to {event_type}: {e}")
+
             # Set up message event subscription
+            logger.info(f"Subscribing to {EventType.CONTACT_MSG_RECV} events with handler: {self._on_message_received}")
             self._meshcore.subscribe(
                 EventType.CONTACT_MSG_RECV, self._on_message_received
             )
+            logger.info("Event subscription completed")
+
+            # Verify subscription
+            logger.debug(f"MeshCore dispatcher: {self._meshcore.dispatcher}")
+            logger.debug(f"Dispatcher subscribers: {getattr(self._meshcore.dispatcher, 'subscribers', 'No subscribers attr')}")
 
             self._connected = True
             logger.info(
