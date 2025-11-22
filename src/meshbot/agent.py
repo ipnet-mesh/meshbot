@@ -260,8 +260,11 @@ class MeshBotAgent:
           1. Message is on the configured listen_channel
           2. Message contains the activation_phrase
         """
+        logger.debug(f"_should_respond_to_message called with message_type={message.message_type}")
+
         # Always respond to DMs
         if message.message_type == "direct":
+            logger.debug("Message is direct, returning True")
             return True
 
         # For channel messages, check channel and activation phrase
@@ -303,7 +306,11 @@ class MeshBotAgent:
             logger.info(f"Received message from {message.sender}: {message.content}")
 
             # Check if we should respond to this message
-            if not self._should_respond_to_message(message):
+            logger.debug(f"Checking if should respond to message (type={message.message_type})")
+            should_respond = self._should_respond_to_message(message)
+            logger.debug(f"Should respond: {should_respond}")
+            if not should_respond:
+                logger.info("Message filtered out, not responding")
                 return True  # Not an error, just filtered out
 
             # Store user message in memory
