@@ -231,34 +231,10 @@ class RealMeshCoreInterface(MeshCoreInterface):
             logger.info("Starting auto message fetching...")
             await self._meshcore.start_auto_message_fetching()
 
-            # Clear any pending messages from queue before starting
-            logger.info("Clearing any pending messages from queue...")
-            try:
-                cleared = 0
-                while True:
-                    result = await asyncio.wait_for(
-                        self._meshcore.commands.get_msg(), timeout=1.0
-                    )
-                    if result.type == EventType.NO_MORE_MSGS or result.type == EventType.ERROR:
-                        break
-                    cleared += 1
-                    logger.debug(f"Cleared old message {cleared}: {result.type}")
-                logger.info(f"Cleared {cleared} old messages from queue")
-            except asyncio.TimeoutError:
-                logger.info("No old messages to clear")
-            except Exception as e:
-                logger.warning(f"Error clearing messages: {e}")
-
-            # Also start a manual polling task as backup
-            logger.info("Starting manual message polling task...")
-            asyncio.create_task(self._poll_messages())
-
             # Set up message event subscription
-            logger.info(f"Subscribing to {EventType.CONTACT_MSG_RECV} events")
             self._meshcore.subscribe(
                 EventType.CONTACT_MSG_RECV, self._on_message_received
             )
-            logger.info("Event subscription completed")
 
             self._connected = True
             logger.info(
@@ -280,22 +256,6 @@ class RealMeshCoreInterface(MeshCoreInterface):
             finally:
                 self._meshcore = None
                 self._connected = False
-
-    async def _poll_messages(self) -> None:
-        """Manually poll for messages every few seconds as backup."""
-        from meshcore import EventType  # Import here for access in polling task
-
-        logger.info("Message polling task started")
-        while self._connected and self._meshcore:
-            try:
-                result = await self._meshcore.commands.get_msg()
-                # Only log if we got a message (not errors or no_more_msgs)
-                if result.type not in [EventType.ERROR, EventType.NO_MORE_MSGS]:
-                    logger.info(f"Poll found message: {result.type}, payload: {result.payload}")
-                await asyncio.sleep(3)  # Poll every 3 seconds
-            except Exception as e:
-                logger.error(f"Error in message polling: {e}")
-                await asyncio.sleep(3)
 
     async def send_message(self, destination: str, message: str) -> bool:
         """Send message via real MeshCore."""
@@ -347,16 +307,11 @@ class RealMeshCoreInterface(MeshCoreInterface):
 
     def add_message_handler(self, handler: Callable[[MeshCoreMessage], Any]) -> None:
         """Add handler for incoming messages."""
-        logger.info(f"Registering message handler: {handler}")
         self._message_handlers.append(handler)
-        logger.info(f"Total message handlers: {len(self._message_handlers)}")
 
     async def _on_message_received(self, event) -> None:
         """Handle incoming message events."""
         try:
-            logger.debug(f"_on_message_received called! Event: {event}")
-            logger.debug(f"Number of registered handlers: {len(self._message_handlers)}")
-
             payload = event.payload
 
             # Extract message fields from MeshCore event payload
@@ -368,8 +323,6 @@ class RealMeshCoreInterface(MeshCoreInterface):
             # Map MeshCore message types to our types
             message_type = "direct" if msg_type == "PRIV" else "channel"
 
-            logger.debug(f"Parsed message - sender: {sender}, content: {content}, type: {message_type}")
-
             message = MeshCoreMessage(
                 sender=sender,
                 sender_name=None,  # MeshCore doesn't provide name in message events
@@ -379,17 +332,14 @@ class RealMeshCoreInterface(MeshCoreInterface):
             )
 
             # Call all registered handlers
-            logger.debug(f"Calling {len(self._message_handlers)} message handlers")
-            for i, handler in enumerate(self._message_handlers):
+            for handler in self._message_handlers:
                 try:
-                    logger.debug(f"Calling handler {i+1}/{len(self._message_handlers)}: {handler}")
                     if asyncio.iscoroutinefunction(handler):
                         await handler(message)
                     else:
                         handler(message)
-                    logger.debug(f"Handler {i+1} completed successfully")
                 except Exception as e:
-                    logger.error(f"Error in message handler {i+1}: {e}", exc_info=True)
+                    logger.error(f"Error in message handler: {e}", exc_info=True)
 
         except Exception as e:
             logger.error(f"Error processing message event: {e}")
