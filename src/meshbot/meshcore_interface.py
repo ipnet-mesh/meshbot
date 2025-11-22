@@ -539,6 +539,26 @@ class RealMeshCoreInterface(MeshCoreInterface):
                 )
                 name = payload.get("adv_name", "") or payload.get("name", "")
 
+                # If no name in payload, try to get it from contacts list
+                # (contacts are auto-populated when adverts are received)
+                if sender != "unknown" and not name and self._meshcore:
+                    try:
+                        await self._meshcore.ensure_contacts()
+                        # Try to find contact by matching public_key
+                        for contact_data in self._meshcore.contacts.values():
+                            contact_pubkey = contact_data.get("public_key", "")
+                            contact_prefix = contact_data.get("pubkey_prefix", "")
+                            # Match by full key or prefix
+                            if sender == contact_pubkey or sender == contact_prefix:
+                                name = contact_data.get("adv_name", "")
+                                if name:
+                                    logger.debug(
+                                        f"Found name '{name}' for {sender[:16]}... in contacts"
+                                    )
+                                break
+                    except Exception as e:
+                        logger.debug(f"Could not query contacts for name: {e}")
+
                 # Update node name mapping if we have both
                 if sender != "unknown" and name:
                     self._update_node_name(sender, name)
