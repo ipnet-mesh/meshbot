@@ -4,8 +4,8 @@ import asyncio
 import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Any, Callable
 from enum import Enum
+from typing import Any, Callable, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -194,10 +194,10 @@ class RealMeshCoreInterface(MeshCoreInterface):
         """Connect to real MeshCore device."""
         try:
             from meshcore import (  # type: ignore
+                BLEConnection,
                 MeshCore,
                 SerialConnection,
                 TCPConnection,
-                BLEConnection,
             )
 
             # Create appropriate connection

@@ -1,27 +1,33 @@
 """Basic tests for MeshBot."""
 
-import pytest
 import asyncio
 from pathlib import Path
-from unittest.mock import Mock, AsyncMock
+from unittest.mock import AsyncMock, Mock
 
-from meshbot.memory import MemoryManager, ConversationMessage
+import pytest
+
 from meshbot.knowledge import SimpleKnowledgeBase
-from meshbot.meshcore_interface import MockMeshCoreInterface, MeshCoreMessage
+from meshbot.memory import ConversationMessage, MemoryManager
+from meshbot.meshcore_interface import MeshCoreMessage, MockMeshCoreInterface
 
 
 class TestMemoryManager:
     """Test memory management functionality."""
 
     @pytest.fixture
-    async def memory_manager(self, tmp_path):
+    async def memory_manager(self, tmp_path: Path) -> MemoryManager:
         """Create a memory manager for testing."""
-        manager = MemoryManager(tmp_path / "test_memory.json")
+        # Use a test-specific database to avoid conflicts
+        db_path = tmp_path / "test_memori.db"
+        manager = MemoryManager(
+            storage_path=tmp_path / "test_memory.json",
+            database_url=f"sqlite:///{db_path}",
+        )
         await manager.load()
         return manager
 
     @pytest.mark.asyncio
-    async def test_user_memory_creation(self, memory_manager):
+    async def test_user_memory_creation(self, memory_manager: MemoryManager) -> None:
         """Test creating and retrieving user memory."""
         user_id = "test_user_123"
 
@@ -30,11 +36,12 @@ class TestMemoryManager:
 
         assert memory.user_id == user_id
         assert memory.total_messages == 0
+        # conversation_history starts empty
         assert memory.conversation_history == []
 
     @pytest.mark.asyncio
-    async def test_adding_messages(self, memory_manager):
-        """Test adding messages to user memory."""
+    async def test_adding_messages(self, memory_manager: MemoryManager) -> None:
+        """Test adding messages to user memory (metadata only)."""
         user_id = "test_user_456"
 
         # Create a test message
@@ -48,34 +55,74 @@ class TestMemoryManager:
         # Add message
         await memory_manager.add_message(message, is_from_user=True)
 
-        # Check memory
+        # Check memory - message count should increment
         memory = await memory_manager.get_user_memory(user_id)
         assert memory.total_messages == 1
-        assert len(memory.conversation_history) == 1
-        assert memory.conversation_history[0].content == "Hello, bot!"
-        assert memory.conversation_history[0].role == "user"
+        assert memory.user_name == "TestUser"
+        # Note: conversation_history is managed by Memori, not stored in metadata
+        assert memory.conversation_history == []
 
     @pytest.mark.asyncio
-    async def test_conversation_history(self, memory_manager):
-        """Test retrieving conversation history."""
+    async def test_conversation_history(self, memory_manager: MemoryManager) -> None:
+        """Test conversation history with Memori integration."""
         user_id = "test_user_789"
 
         # Add multiple messages
         for i in range(5):
             message = MeshCoreMessage(
-                sender=user_id, content=f"Message {i}", timestamp=1234567890.0 + i
+                sender=user_id,
+                sender_name="TestUser",
+                content=f"Message {i}",
+                timestamp=1234567890.0 + i,
             )
             await memory_manager.add_message(message, is_from_user=i % 2 == 0)
 
-        # Get history
-        history = await memory_manager.get_conversation_history(user_id)
-        assert len(history) == 5
+        # Check message count
+        memory = await memory_manager.get_user_memory(user_id)
+        assert memory.total_messages == 5
 
-        # Get limited history
-        limited_history = await memory_manager.get_conversation_history(
-            user_id, limit=3
+        # Note: Actual conversation history is managed by Memori
+        # and automatically injected into LLM calls
+        history = await memory_manager.get_conversation_history(user_id)
+        assert isinstance(history, list)  # Returns empty list for compatibility
+
+    @pytest.mark.asyncio
+    async def test_user_preferences(self, memory_manager: MemoryManager) -> None:
+        """Test user preferences."""
+        user_id = "test_user_prefs"
+
+        # Set preferences
+        await memory_manager.set_user_preference(user_id, "language", "en")
+        await memory_manager.set_user_preference(user_id, "timezone", "UTC")
+
+        # Get preferences
+        lang = await memory_manager.get_user_preference(user_id, "language")
+        tz = await memory_manager.get_user_preference(user_id, "timezone")
+
+        assert lang == "en"
+        assert tz == "UTC"
+
+        # Test default value
+        missing = await memory_manager.get_user_preference(
+            user_id, "missing_key", default="default_value"
         )
-        assert len(limited_history) == 3
+        assert missing == "default_value"
+
+    @pytest.mark.asyncio
+    async def test_user_context(self, memory_manager: MemoryManager) -> None:
+        """Test user context."""
+        user_id = "test_user_context"
+
+        # Set context
+        await memory_manager.set_user_context(user_id, "project", "meshbot")
+        await memory_manager.set_user_context(user_id, "skill_level", "expert")
+
+        # Get context
+        project = await memory_manager.get_user_context(user_id, "project")
+        skill = await memory_manager.get_user_context(user_id, "skill_level")
+
+        assert project == "meshbot"
+        assert skill == "expert"
 
 
 class TestKnowledgeBase:
@@ -114,7 +161,7 @@ class TestKnowledgeBase:
         # Search for "MeshCore"
         results = await knowledge_base.search("MeshCore")
         assert len(results) > 0
-        assert "MeshCore" in results[0].excerpt.lower()
+        assert "meshcore" in results[0].excerpt.lower()
 
         # Search for "important"
         results = await knowledge_base.search("important")
@@ -184,10 +231,14 @@ class TestIntegration:
     """Integration tests."""
 
     @pytest.mark.asyncio
-    async def test_message_flow(self, tmp_path):
+    async def test_message_flow(self, tmp_path: Path) -> None:
         """Test complete message flow."""
         # Setup components
-        memory = MemoryManager(tmp_path / "memory.json")
+        db_path = tmp_path / "integration_memori.db"
+        memory = MemoryManager(
+            storage_path=tmp_path / "memory.json",
+            database_url=f"sqlite:///{db_path}",
+        )
         await memory.load()
 
         meshcore = MockMeshCoreInterface()

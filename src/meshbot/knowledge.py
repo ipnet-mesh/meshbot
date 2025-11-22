@@ -6,7 +6,8 @@ import logging
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Any
+from typing import Any, Dict, List, Optional, Tuple
+
 import aiofiles
 
 logger = logging.getLogger(__name__)
@@ -158,7 +159,7 @@ class SimpleKnowledgeBase:
             return []
 
         # Find chunks containing query words
-        chunk_scores: Dict[KnowledgeChunk, float] = {}
+        chunk_scores: Dict[int, tuple[KnowledgeChunk, float]] = {}
 
         for word in query_words:
             if word in self._word_index:
@@ -167,13 +168,17 @@ class SimpleKnowledgeBase:
                     word_count = chunk.content.lower().count(word)
                     score = word_count / len(chunk.content.split())
 
-                    if chunk in chunk_scores:
-                        chunk_scores[chunk] += score
+                    chunk_id = id(chunk)
+                    if chunk_id in chunk_scores:
+                        chunk_scores[chunk_id] = (
+                            chunk,
+                            chunk_scores[chunk_id][1] + score,
+                        )
                     else:
-                        chunk_scores[chunk] = score
+                        chunk_scores[chunk_id] = (chunk, score)
 
         # Sort by score and create results
-        sorted_chunks = sorted(chunk_scores.items(), key=lambda x: x[1], reverse=True)
+        sorted_chunks = sorted(chunk_scores.values(), key=lambda x: x[1], reverse=True)
 
         results = []
         for chunk, score in sorted_chunks[:max_results]:
@@ -283,8 +288,8 @@ class VectorKnowledgeBase(SimpleKnowledgeBase):
     async def _load_embeddings(self) -> None:
         """Load sentence transformer model for embeddings."""
         try:
-            from sentence_transformers import SentenceTransformer
             import numpy as np
+            from sentence_transformers import SentenceTransformer
 
             logger.info("Loading sentence transformer model...")
             self._embedding_model = SentenceTransformer("all-MiniLM-L6-v2")

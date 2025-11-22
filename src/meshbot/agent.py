@@ -4,18 +4,18 @@ import asyncio
 import logging
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional, List, Any, Dict
+from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
 from pydantic_ai import Agent, RunContext
 
+from .knowledge import SimpleKnowledgeBase, create_knowledge_base
+from .memory import MemoryManager
 from .meshcore_interface import (
     MeshCoreInterface,
     MeshCoreMessage,
     create_meshcore_interface,
 )
-from .memory import MemoryManager
-from .knowledge import create_knowledge_base, SimpleKnowledgeBase
 
 logger = logging.getLogger(__name__)
 
@@ -82,8 +82,11 @@ class MeshBotAgent:
         )
 
         # Initialize memory manager
-        self.memory = MemoryManager(self.memory_path or Path("memory.json"))
+        self.memory = MemoryManager(self.memory_path or Path("memory_metadata.json"))
         await self.memory.load()
+
+        # Enable Memori for automatic conversation memory
+        self.memory.enable_memori()
 
         # Initialize knowledge base
         self.knowledge = create_knowledge_base(self.knowledge_dir)
@@ -249,23 +252,13 @@ class MeshBotAgent:
             # Store message in memory
             await self.memory.add_message(message, is_from_user=True)
 
-            # Get conversation context
-            context = await self.memory.get_recent_context(
-                message.sender, max_messages=5
-            )
-
             # Create dependencies for this interaction
             deps = MeshBotDependencies(
                 meshcore=self.meshcore, memory=self.memory, knowledge=self.knowledge
             )
 
-            # Prepare prompt with context
-            prompt = message.content
-            if context:
-                prompt = f"Recent conversation:\n{context}\n\nCurrent message: {message.content}"
-
-            # Run agent
-            result = await self.agent.run(prompt, deps=deps)
+            # Run agent (Memori will automatically inject conversation context)
+            result = await self.agent.run(message.content, deps=deps)
 
             # Send response
             response = result.output.response
@@ -338,9 +331,9 @@ class MeshBotAgent:
         status = {
             "running": self._running,
             "model": self.model,
-            "meshcore_connected": self.meshcore.is_connected()
-            if self.meshcore
-            else False,
+            "meshcore_connected": (
+                self.meshcore.is_connected() if self.meshcore else False
+            ),
             "meshcore_type": self.meshcore_connection_type,
         }
 

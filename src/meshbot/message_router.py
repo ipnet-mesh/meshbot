@@ -3,8 +3,8 @@
 import asyncio
 import logging
 import re
-from typing import Dict, List, Optional, Callable, Any
 from dataclasses import dataclass
+from typing import Any, Callable, Dict, List, Optional
 
 from .meshcore_interface import MeshCoreMessage
 

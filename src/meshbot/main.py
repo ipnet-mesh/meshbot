@@ -11,8 +11,8 @@ import click
 from rich.console import Console
 from rich.logging import RichHandler
 
-from .config import load_config, MeshBotConfig
 from .agent import MeshBotAgent
+from .config import MeshBotConfig, load_config
 
 console = Console()
 
