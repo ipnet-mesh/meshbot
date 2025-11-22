@@ -84,12 +84,18 @@ class MeshCoreInterface(ABC):
         """Send a local advertisement to announce presence."""
         pass
 
+    @abstractmethod
+    async def get_own_public_key(self) -> Optional[str]:
+        """Get the bot's own public key/identifier."""
+        pass
+
 
 class MockMeshCoreInterface(MeshCoreInterface):
     """Mock implementation for testing and development."""
 
     def __init__(self):
         self._connected = False
+        self._own_public_key = "meshbot_mock_key"
         self._contacts: Dict[str, MeshCoreContact] = {
             "node1": MeshCoreContact(
                 public_key="node1", name="TestNode1", is_online=True
@@ -184,6 +190,10 @@ class MockMeshCoreInterface(MeshCoreInterface):
         """Add a handler for incoming messages."""
         self._message_handlers.append(handler)
 
+    async def get_own_public_key(self) -> Optional[str]:
+        """Get the bot's own public key."""
+        return self._own_public_key
+
     async def _simulate_messages(self) -> None:
         """Simulate incoming messages for testing."""
         while self._connected:
@@ -217,6 +227,7 @@ class RealMeshCoreInterface(MeshCoreInterface):
         self.connection_params = kwargs
         self._meshcore = None
         self._connected = False
+        self._own_public_key: Optional[str] = None
         self._message_handlers: List[Callable[[MeshCoreMessage], Any]] = []
 
     async def connect(self) -> None:
@@ -266,6 +277,14 @@ class RealMeshCoreInterface(MeshCoreInterface):
             self._meshcore.subscribe(
                 EventType.CHANNEL_MSG_RECV, self._on_message_received
             )
+
+            # Get bot's own public key for message filtering
+            try:
+                self._own_public_key = self._meshcore.public_key
+                logger.info(f"Bot public key: {self._own_public_key[:16]}...")
+            except Exception as e:
+                logger.warning(f"Could not retrieve own public key: {e}")
+                self._own_public_key = None
 
             self._connected = True
             logger.info(
@@ -388,6 +407,10 @@ class RealMeshCoreInterface(MeshCoreInterface):
     def add_message_handler(self, handler: Callable[[MeshCoreMessage], Any]) -> None:
         """Add handler for incoming messages."""
         self._message_handlers.append(handler)
+
+    async def get_own_public_key(self) -> Optional[str]:
+        """Get the bot's own public key."""
+        return self._own_public_key
 
     async def _on_message_received(self, event) -> None:
         """Handle incoming message events."""
