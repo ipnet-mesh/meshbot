@@ -372,7 +372,6 @@ class RealMeshCoreInterface(MeshCoreInterface):
         """Handle incoming message events."""
         try:
             payload = event.payload
-            logger.debug(f"Received message payload: {payload}")
 
             # Extract message fields from MeshCore event payload
             sender = payload.get("pubkey_prefix", "")
@@ -383,8 +382,6 @@ class RealMeshCoreInterface(MeshCoreInterface):
 
             # Map MeshCore message types to our types
             message_type = "direct" if msg_type == "PRIV" else "channel"
-
-            logger.debug(f"Parsed message - sender: {sender}, type: {message_type}, channel: {channel}, content: {content}")
 
             message = MeshCoreMessage(
                 sender=sender,

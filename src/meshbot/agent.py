@@ -329,11 +329,8 @@ class MeshBotAgent:
           1. Message is on the configured listen_channel
           2. Message contains the activation_phrase
         """
-        logger.debug(f"_should_respond_to_message called with message_type={message.message_type}")
-
         # Always respond to DMs
         if message.message_type == "direct":
-            logger.debug("Message is direct, returning True")
             return True
 
         # For channel messages, check channel and activation phrase
@@ -342,19 +339,12 @@ class MeshBotAgent:
             # Handle both string channel names and numeric IDs
             message_channel = str(getattr(message, "channel", "0"))
             if message_channel != self.listen_channel:
-                logger.debug(
-                    f"Ignoring message from channel {message_channel}, "
-                    f"listening to {self.listen_channel}"
-                )
                 return False
 
             # Check for activation phrase (case-insensitive)
             if self.activation_phrase.lower() in message.content.lower():
                 return True
             else:
-                logger.debug(
-                    f"Ignoring channel message without activation phrase: {message.content}"
-                )
                 return False
 
         # Default: don't respond to broadcast messages or unknown types
@@ -375,14 +365,10 @@ class MeshBotAgent:
             logger.info(f"Received message from {message.sender}: {message.content}")
 
             # Check if we should respond to this message
-            logger.debug(f"Checking if should respond to message (type={message.message_type})")
             should_respond = self._should_respond_to_message(message)
-            logger.debug(f"Should respond: {should_respond}")
             if not should_respond:
                 logger.info("Message filtered out, not responding")
                 return True  # Not an error, just filtered out
-
-            logger.debug("Passed response filter, proceeding to handle message")
 
             # Determine conversation identifier
             # For channels: use channel as identifier
@@ -393,7 +379,6 @@ class MeshBotAgent:
                 conversation_id = message.sender
 
             # Store user message in memory
-            logger.debug(f"Storing user message in memory for conversation {conversation_id}...")
             await self.memory.add_message(
                 user_id=conversation_id,
                 role="user",
@@ -401,22 +386,16 @@ class MeshBotAgent:
                 message_type=message.message_type,
                 timestamp=message.timestamp,
             )
-            logger.debug("User message stored successfully")
 
             # Get conversation context
-            logger.debug("Retrieving conversation context...")
             context = await self.memory.get_conversation_context(
                 user_id=conversation_id, message_type=message.message_type
             )
-            logger.debug(f"Retrieved {len(context)} messages from conversation history")
 
             # Create dependencies for this interaction
-            logger.debug("Creating dependencies for agent...")
             deps = MeshBotDependencies(meshcore=self.meshcore, memory=self.memory)
-            logger.debug("Dependencies created successfully")
 
             # Build the prompt with conversation history
-            logger.debug("Building prompt with conversation history...")
             if context and len(context) > 1:  # Only include history if there's more than just current message
                 # Include previous context in the prompt (excluding the message we just added)
                 prompt = f"Conversation history:\n"
@@ -424,15 +403,11 @@ class MeshBotAgent:
                     role_name = "User" if msg["role"] == "user" else "Assistant"
                     prompt += f"{role_name}: {msg['content']}\n"
                 prompt += f"\nUser: {message.content}\nAssistant:"
-                logger.debug(f"Built prompt with {len(context)-1} previous messages")
             else:
                 prompt = message.content
-                logger.debug("No previous context, using message as-is")
 
-            logger.info(f"Calling LLM with prompt (length: {len(prompt)} chars)")
             # Run agent with conversation context
             result = await self.agent.run(prompt, deps=deps)
-            logger.debug(f"LLM returned result: {result.output}")
 
             # Send response
             response = result.output.response
@@ -452,7 +427,6 @@ class MeshBotAgent:
 
                 # Send all chunks
                 for i, chunk in enumerate(message_chunks):
-                    logger.debug(f"Sending chunk {i+1}/{len(message_chunks)}: {chunk}")
                     await self.meshcore.send_message(destination, chunk)
 
                     # Small delay between messages to avoid flooding
