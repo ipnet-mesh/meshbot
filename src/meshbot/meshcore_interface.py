@@ -380,15 +380,16 @@ class RealMeshCoreInterface(MeshCoreInterface):
             return []
 
     async def ping_node(self, destination: str) -> bool:
-        """Ping node via real MeshCore."""
+        """Send status request to node (ping equivalent)."""
         if not self._connected or not self._meshcore:
             return False
 
         try:
-            result = await self._meshcore.commands.ping(destination)
+            # MeshCore doesn't have a ping command, use send_statusreq instead
+            result = await self._meshcore.commands.send_statusreq(destination)
             return result is not None
         except Exception as e:
-            logger.error(f"Failed to ping node: {e}")
+            logger.error(f"Failed to send status request: {e}")
             return False
 
     def is_connected(self) -> bool:

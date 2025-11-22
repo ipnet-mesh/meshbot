@@ -174,16 +174,18 @@ class MeshBotAgent:
                 return "Error retrieving user information."
 
         @self.agent.tool
-        async def ping_node(
+        async def status_request(
             ctx: RunContext[MeshBotDependencies], destination: str
         ) -> str:
-            """Ping a MeshCore node."""
+            """Send a status request to a MeshCore node (similar to ping)."""
             try:
+                # Use send_statusreq instead of ping (which doesn't exist)
+                # This will request status from the destination node
                 success = await ctx.deps.meshcore.ping_node(destination)
-                return f"Ping to {destination}: {'Success' if success else 'Failed'}"
+                return f"Status request to {destination}: {'Success' if success else 'Failed'}"
             except Exception as e:
-                logger.error(f"Error pinging node: {e}")
-                return f"Error pinging {destination}: {e}"
+                logger.error(f"Error sending status request: {e}")
+                return f"Status request to {destination} failed"
 
         @self.agent.tool
         async def get_contacts(ctx: RunContext[MeshBotDependencies]) -> str:
@@ -785,6 +787,21 @@ class MeshBotAgent:
         except Exception as e:
             error_msg = str(e)
             logger.error(f"Error handling message: {error_msg}")
+
+            # Check for usage limit exceeded
+            if "request_limit" in error_msg or "UsageLimit" in error_msg:
+                logger.warning(
+                    "API request limit reached - query too complex, simplifying response"
+                )
+                # Send a helpful message to the user
+                try:
+                    await self.meshcore.send_message(
+                        message.sender,
+                        "Sorry, that query is too complex. Please try a simpler question or break it into smaller parts.",
+                    )
+                    return True  # Handled gracefully
+                except:
+                    pass
 
             # Check for common API errors and provide helpful messages
             if "status_code: 403" in error_msg or "Access denied" in error_msg:
