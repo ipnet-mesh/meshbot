@@ -511,33 +511,72 @@ class RealMeshCoreInterface(MeshCoreInterface):
             )
             payload = event.payload if hasattr(event, "payload") else {}
 
+            # Debug: log the full payload structure to understand what fields are available
+            logger.debug(f"Network event payload keys: {list(payload.keys())}")
+
             # Format event for logging
             timestamp = time.time()
             event_info = f"{event_type}"
 
             # Extract relevant info based on event type
             if event_type == "advertisement":
-                sender = payload.get("pubkey_prefix", "unknown")
-                name = payload.get("adv_name", "")
-                event_info = f"ADVERT from {sender[:16]}"
+                # Try multiple possible field names for the sender
+                sender = (
+                    payload.get("pubkey_prefix")
+                    or payload.get("public_key")
+                    or payload.get("pubkey")
+                    or payload.get("sender")
+                    or payload.get("from")
+                    or "unknown"
+                )
+                name = payload.get("adv_name", "") or payload.get("name", "")
+
+                # If sender is still unknown, log the full payload for debugging
+                if sender == "unknown":
+                    logger.warning(
+                        f"Could not extract sender from advertisement: {payload}"
+                    )
+
+                event_info = (
+                    f"ADVERT from {sender[:16] if sender != 'unknown' else sender}"
+                )
                 if name:
                     event_info += f" ({name})"
             elif event_type == "new_contact":
-                pubkey = payload.get("public_key", "unknown")
-                name = payload.get("adv_name", "")
-                event_info = f"NEW_CONTACT {pubkey[:16]}"
+                pubkey = (
+                    payload.get("public_key")
+                    or payload.get("pubkey_prefix")
+                    or payload.get("pubkey")
+                    or "unknown"
+                )
+                name = payload.get("adv_name", "") or payload.get("name", "")
+                event_info = (
+                    f"NEW_CONTACT {pubkey[:16] if pubkey != 'unknown' else pubkey}"
+                )
                 if name:
                     event_info += f" ({name})"
             elif event_type == "path_update":
-                dest = payload.get("destination", "unknown")
-                hops = payload.get("hops", 0)
-                event_info = f"PATH_UPDATE to {dest[:16]} ({hops} hops)"
+                dest = (
+                    payload.get("destination")
+                    or payload.get("dest")
+                    or payload.get("to")
+                    or "unknown"
+                )
+                hops = payload.get("hops", 0) or payload.get("hop_count", 0)
+                event_info = f"PATH_UPDATE to {dest[:16] if dest != 'unknown' else dest} ({hops} hops)"
             elif event_type == "neighbours_response":
-                count = len(payload.get("neighbours", []))
+                count = len(
+                    payload.get("neighbours", []) or payload.get("neighbors", [])
+                )
                 event_info = f"NEIGHBOURS {count} nodes"
             elif event_type == "status_response":
-                from_node = payload.get("pubkey_prefix", "unknown")
-                event_info = f"STATUS from {from_node[:16]}"
+                from_node = (
+                    payload.get("pubkey_prefix")
+                    or payload.get("public_key")
+                    or payload.get("from")
+                    or "unknown"
+                )
+                event_info = f"STATUS from {from_node[:16] if from_node != 'unknown' else from_node}"
 
             # Log to file
             log_line = f"{timestamp}|{event_info}"
