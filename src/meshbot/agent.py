@@ -116,6 +116,8 @@ class MeshBotAgent:
             "- Use plain text only\n"
             "- Be direct and clear\n"
             "- If you need to say more, keep it brief anyway\n"
+            "- IMPORTANT: Use tools ONLY when absolutely necessary. For simple queries, respond directly.\n"
+            "- NEVER call multiple tools for a single simple request.\n"
             "When users send 'ping', respond with 'pong'."
         )
 
@@ -138,6 +140,8 @@ class MeshBotAgent:
             deps_type=MeshBotDependencies,
             output_type=AgentResponse,
             instructions=instructions,
+            retries=0,  # Disable retries to reduce API calls
+            end_strategy="early",  # Stop early when final result is found
         )
 
         # Register tools
@@ -723,7 +727,13 @@ class MeshBotAgent:
                 prompt = message.content
 
             # Run agent with conversation context
-            result = await self.agent.run(prompt, deps=deps)
+            # Limit API requests to prevent excessive costs
+            from pydantic_ai import UsageLimits
+
+            usage_limits = UsageLimits(
+                request_limit=5,  # Max 5 LLM requests per message (includes tool calls)
+            )
+            result = await self.agent.run(prompt, deps=deps, usage_limits=usage_limits)
 
             # Send response
             response = result.output.response
