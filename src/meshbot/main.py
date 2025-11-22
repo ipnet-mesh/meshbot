@@ -61,9 +61,6 @@ def setup_logging(config: MeshBotConfig) -> None:
 @click.option("--meshcore-port", help="Serial port for MeshCore connection")
 @click.option("--meshcore-host", help="TCP host for MeshCore connection")
 @click.option(
-    "--knowledge-dir", type=click.Path(path_type=Path), help="Knowledge base directory"
-)
-@click.option(
     "--memory-path", type=click.Path(path_type=Path), help="Memory storage file path"
 )
 @click.option(
@@ -78,7 +75,6 @@ def main(
     meshcore_type: Optional[str],
     meshcore_port: Optional[str],
     meshcore_host: Optional[str],
-    knowledge_dir: Optional[Path],
     memory_path: Optional[Path],
     log_level: Optional[str],
     interactive: bool,
@@ -98,8 +94,6 @@ def main(
             app_config.meshcore.port = meshcore_port
         if meshcore_host:
             app_config.meshcore.host = meshcore_host
-        if knowledge_dir:
-            app_config.knowledge.knowledge_dir = knowledge_dir
         if memory_path:
             app_config.memory.storage_path = memory_path
         if log_level:
@@ -116,7 +110,6 @@ def main(
     # Create and run agent
     agent = MeshBotAgent(
         model=app_config.ai.model,
-        knowledge_dir=app_config.knowledge.knowledge_dir,
         memory_path=app_config.memory.storage_path,
         meshcore_connection_type=app_config.meshcore.connection_type,
         port=app_config.meshcore.port,

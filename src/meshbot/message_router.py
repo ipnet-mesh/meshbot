@@ -80,12 +80,11 @@ class HelpHandler(MessageHandler):
 Available commands:
 • ping - Test connectivity (responds with "pong")
 • help - Show this help message
-• search <query> - Search knowledge base
 • contacts - List available contacts
 • info - Get your user information
 • history - Show recent conversation
 
-You can also just chat with me normally! I can answer questions and help with tasks using my knowledge base.
+You can also just chat with me normally! I can answer questions and help with tasks.
         """.strip()
 
         return HandlerResult(
@@ -121,19 +120,11 @@ class StatusHandler(MessageHandler):
             if "memory" in status:
                 mem = status["memory"]
                 status_text += f"""
+
 📈 Memory Stats
 • Total Users: {mem["total_users"]}
 • Total Messages: {mem["total_messages"]}
 • Active (24h): {mem["active_users_24h"]}
-                """.strip()
-
-            if "knowledge" in status:
-                kb = status["knowledge"]
-                status_text += f"""
-📚 Knowledge Base
-• Files: {kb["total_files"]}
-• Chunks: {kb["total_chunks"]}
-• Directory: {kb["knowledge_directory"]}
                 """.strip()
 
             return HandlerResult(

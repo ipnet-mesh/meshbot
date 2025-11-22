@@ -6,7 +6,6 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
-from meshbot.knowledge import SimpleKnowledgeBase
 from meshbot.memory import ConversationMessage, MemoryManager
 from meshbot.meshcore_interface import MeshCoreMessage, MockMeshCoreInterface
 
@@ -123,53 +122,6 @@ class TestMemoryManager:
 
         assert project == "meshbot"
         assert skill == "expert"
-
-
-class TestKnowledgeBase:
-    """Test knowledge base functionality."""
-
-    @pytest.fixture
-    async def knowledge_base(self, tmp_path):
-        """Create a knowledge base for testing."""
-        # Create test files
-        kb_dir = tmp_path / "knowledge"
-        kb_dir.mkdir()
-
-        (kb_dir / "test1.txt").write_text(
-            "This is a test file about MeshCore networking."
-        )
-        (kb_dir / "test2.md").write_text(
-            "# Test Markdown\n\nThis file contains **important** information."
-        )
-        (kb_dir / "subdir").mkdir()
-        (kb_dir / "subdir" / "test3.txt").write_text("This is in a subdirectory.")
-
-        kb = SimpleKnowledgeBase(kb_dir)
-        await kb.load()
-        return kb
-
-    @pytest.mark.asyncio
-    async def test_loading_files(self, knowledge_base):
-        """Test loading files into knowledge base."""
-        stats = await knowledge_base.get_statistics()
-        assert stats["total_files"] == 3
-        assert stats["total_chunks"] > 0
-
-    @pytest.mark.asyncio
-    async def test_search_functionality(self, knowledge_base):
-        """Test searching the knowledge base."""
-        # Search for "MeshCore"
-        results = await knowledge_base.search("MeshCore")
-        assert len(results) > 0
-        assert "meshcore" in results[0].excerpt.lower()
-
-        # Search for "important"
-        results = await knowledge_base.search("important")
-        assert len(results) > 0
-
-        # Search for non-existent term
-        results = await knowledge_base.search("nonexistent")
-        assert len(results) == 0
 
 
 class TestMockMeshCore:

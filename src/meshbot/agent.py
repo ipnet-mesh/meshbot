@@ -9,7 +9,6 @@ from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
 from pydantic_ai import Agent, RunContext
 
-from .knowledge import SimpleKnowledgeBase, create_knowledge_base
 from .memory import MemoryManager
 from .meshcore_interface import (
     MeshCoreInterface,
@@ -26,7 +25,6 @@ class MeshBotDependencies:
 
     meshcore: MeshCoreInterface
     memory: MemoryManager
-    knowledge: SimpleKnowledgeBase
 
 
 class AgentResponse(BaseModel):
@@ -50,13 +48,11 @@ class MeshBotAgent:
     def __init__(
         self,
         model: str = "openai:gpt-4o-mini",
-        knowledge_dir: Path = Path("knowledge"),
         memory_path: Optional[Path] = None,
         meshcore_connection_type: str = "mock",
         **meshcore_kwargs,
     ):
         self.model = model
-        self.knowledge_dir = knowledge_dir
         self.memory_path = memory_path
         self.meshcore_connection_type = meshcore_connection_type
         self.meshcore_kwargs = meshcore_kwargs
@@ -64,7 +60,6 @@ class MeshBotAgent:
         # Initialize components
         self.meshcore: Optional[MeshCoreInterface] = None
         self.memory: Optional[MemoryManager] = None
-        self.knowledge: Optional[SimpleKnowledgeBase] = None
         self.agent: Optional[Agent[MeshBotDependencies, AgentResponse]] = None
 
         self._running = False
@@ -87,10 +82,6 @@ class MeshBotAgent:
 
         # Enable Memori for automatic conversation memory
         self.memory.enable_memori()
-
-        # Initialize knowledge base
-        self.knowledge = create_knowledge_base(self.knowledge_dir)
-        await self.knowledge.load()
 
         # Create Pydantic AI agent
         self.agent = Agent(
@@ -117,26 +108,6 @@ class MeshBotAgent:
 
     def _register_tools(self) -> None:
         """Register tools for the agent."""
-
-        @self.agent.tool
-        async def search_knowledge(
-            ctx: RunContext[MeshBotDependencies], query: str
-        ) -> str:
-            """Search the knowledge base for information."""
-            try:
-                results = await ctx.deps.knowledge.search(query, max_results=3)
-                if not results:
-                    return "No relevant information found in the knowledge base."
-
-                response = "Found the following information:\n\n"
-                for i, result in enumerate(results, 1):
-                    response += f"{i}. {result.excerpt}\n"
-                    response += f"   Source: {result.chunk.source_file}\n\n"
-
-                return response.strip()
-            except Exception as e:
-                logger.error(f"Error searching knowledge base: {e}")
-                return "Error searching knowledge base."
 
         @self.agent.tool
         async def get_user_info(
@@ -253,9 +224,7 @@ class MeshBotAgent:
             await self.memory.add_message(message, is_from_user=True)
 
             # Create dependencies for this interaction
-            deps = MeshBotDependencies(
-                meshcore=self.meshcore, memory=self.memory, knowledge=self.knowledge
-            )
+            deps = MeshBotDependencies(meshcore=self.meshcore, memory=self.memory)
 
             # Run agent (Memori will automatically inject conversation context)
             result = await self.agent.run(message.content, deps=deps)
@@ -340,9 +309,5 @@ class MeshBotAgent:
         if self.memory:
             memory_stats = await self.memory.get_statistics()
             status["memory"] = memory_stats
-
-        if self.knowledge:
-            knowledge_stats = await self.knowledge.get_statistics()
-            status["knowledge"] = knowledge_stats
 
         return status

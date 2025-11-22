@@ -70,22 +70,6 @@ class MemoryConfig:
 
 
 @dataclass
-class KnowledgeConfig:
-    """Configuration for knowledge base."""
-
-    knowledge_dir: Path = field(
-        default_factory=lambda: Path(os.getenv("KNOWLEDGE_DIR", "knowledge"))
-    )
-    use_vectors: bool = field(
-        default_factory=lambda: os.getenv("KNOWLEDGE_USE_VECTORS", "false").lower()
-        == "true"
-    )
-    max_search_results: int = field(
-        default_factory=lambda: int(os.getenv("KNOWLEDGE_MAX_RESULTS", "5"))
-    )
-
-
-@dataclass
 class LoggingConfig:
     """Configuration for logging."""
 
@@ -105,7 +89,6 @@ class MeshBotConfig:
     meshcore: MeshCoreConfig = field(default_factory=MeshCoreConfig)
     ai: AIConfig = field(default_factory=AIConfig)
     memory: MemoryConfig = field(default_factory=MemoryConfig)
-    knowledge: KnowledgeConfig = field(default_factory=KnowledgeConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
 
     @classmethod
@@ -123,7 +106,6 @@ class MeshBotConfig:
             meshcore=MeshCoreConfig(**data.get("meshcore", {})),
             ai=AIConfig(**data.get("ai", {})),
             memory=MemoryConfig(**data.get("memory", {})),
-            knowledge=KnowledgeConfig(**data.get("knowledge", {})),
             logging=LoggingConfig(**data.get("logging", {})),
         )
 
@@ -135,7 +117,6 @@ class MeshBotConfig:
             "meshcore": self.meshcore.__dict__,
             "ai": self.ai.__dict__,
             "memory": self.memory.__dict__,
-            "knowledge": self.knowledge.__dict__,
             "logging": self.logging.__dict__,
         }
 
@@ -159,7 +140,6 @@ class MeshBotConfig:
 
         # Validate paths
         self.memory.storage_path.parent.mkdir(parents=True, exist_ok=True)
-        self.knowledge.knowledge_dir.mkdir(parents=True, exist_ok=True)
 
         if self.logging.file_path:
             self.logging.file_path.parent.mkdir(parents=True, exist_ok=True)
