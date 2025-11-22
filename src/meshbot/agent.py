@@ -319,23 +319,28 @@ class MeshBotAgent:
             context = await self.memory.get_conversation_context(
                 user_id=message.sender, message_type=message.message_type
             )
+            logger.debug(f"Retrieved {len(context)} messages from conversation history")
 
             # Create dependencies for this interaction
             deps = MeshBotDependencies(meshcore=self.meshcore, memory=self.memory)
 
             # Build the prompt with conversation history
-            if context:
-                # Include previous context in the prompt
+            if context and len(context) > 1:  # Only include history if there's more than just current message
+                # Include previous context in the prompt (excluding the message we just added)
                 prompt = f"Conversation history:\n"
-                for msg in context[-10:]:  # Last 10 messages for context
+                for msg in context[:-1][-10:]:  # Last 10 messages, excluding current
                     role_name = "User" if msg["role"] == "user" else "Assistant"
                     prompt += f"{role_name}: {msg['content']}\n"
                 prompt += f"\nUser: {message.content}\nAssistant:"
+                logger.debug(f"Built prompt with {len(context)-1} previous messages")
             else:
                 prompt = message.content
+                logger.debug("No previous context, using message as-is")
 
+            logger.info(f"Calling LLM with prompt (length: {len(prompt)} chars)")
             # Run agent with conversation context
             result = await self.agent.run(prompt, deps=deps)
+            logger.debug(f"LLM returned result: {result.output}")
 
             # Send response
             response = result.output.response
