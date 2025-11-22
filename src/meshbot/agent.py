@@ -84,8 +84,11 @@ class MeshBotAgent:
             connection_type, **self.meshcore_kwargs
         )
 
-        # Initialize memory manager
-        self.memory = MemoryManager(self.memory_path or Path("memory_metadata.json"))
+        # Initialize memory manager with base_url for OpenAI-compatible endpoints
+        self.memory = MemoryManager(
+            storage_path=self.memory_path or Path("memory_metadata.json"),
+            base_url=self.base_url,
+        )
         await self.memory.load()
 
         # Enable Memori for automatic conversation memory

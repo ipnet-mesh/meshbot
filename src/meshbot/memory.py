@@ -56,6 +56,7 @@ class MemoryManager:
         storage_path: Optional[Path] = None,
         database_url: Optional[str] = None,
         openai_api_key: Optional[str] = None,
+        base_url: Optional[str] = None,
     ):
         """
         Initialize MemoryManager with Memori integration.
@@ -64,6 +65,7 @@ class MemoryManager:
             storage_path: Path for storing user metadata (preferences, context)
             database_url: Database connection string for Memori (default: SQLite)
             openai_api_key: OpenAI API key for Memori (optional)
+            base_url: Base URL for OpenAI-compatible endpoints (optional)
         """
         self.storage_path = storage_path or Path("memory_metadata.json")
         self._metadata: Dict[str, UserMemory] = {}
@@ -83,14 +85,25 @@ class MemoryManager:
         # Only initialize Memori if we have an API key
         if openai_api_key:
             try:
-                self.memori = Memori(
-                    database_connect=database_url,
-                    conscious_ingest=True,  # Enable working memory
-                    auto_ingest=True,  # Enable dynamic search
-                    openai_api_key=openai_api_key,
-                )
+                memori_kwargs = {
+                    "database_connect": database_url,
+                    "conscious_ingest": True,  # Enable working memory
+                    "auto_ingest": True,  # Enable dynamic search
+                    "openai_api_key": openai_api_key,
+                }
+
+                # Add base_url if using OpenAI-compatible endpoint
+                if base_url:
+                    memori_kwargs["base_url"] = base_url
+                    logger.debug(f"Using custom base URL for Memori: {base_url}")
+
+                self.memori = Memori(**memori_kwargs)
                 self.memori_enabled = False
-                logger.info(f"Initialized Memori with database: {database_url}")
+
+                log_msg = f"Initialized Memori with database: {database_url}"
+                if base_url:
+                    log_msg += f" and custom endpoint: {base_url}"
+                logger.info(log_msg)
             except Exception as e:
                 logger.warning(
                     f"Failed to initialize Memori: {e}. Memory features disabled."
@@ -99,8 +112,8 @@ class MemoryManager:
                 self.memori_enabled = False
         else:
             logger.info(
-                "No OpenAI API key provided, Memori features disabled. "
-                "Set OPENAI_API_KEY environment variable to enable memory features."
+                "No LLM API key provided, Memori features disabled. "
+                "Set LLM_API_KEY environment variable to enable memory features."
             )
             self.memori = None
             self.memori_enabled = False
