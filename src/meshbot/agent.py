@@ -4,18 +4,17 @@ import asyncio
 import logging
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional, List, Any, Dict
+from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
 from pydantic_ai import Agent, RunContext
 
+from .memory import MemoryManager
 from .meshcore_interface import (
     MeshCoreInterface,
     MeshCoreMessage,
     create_meshcore_interface,
 )
-from .memory import MemoryManager
-from .knowledge import create_knowledge_base, SimpleKnowledgeBase
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +25,6 @@ class MeshBotDependencies:
 
     meshcore: MeshCoreInterface
     memory: MemoryManager
-    knowledge: SimpleKnowledgeBase
 
 
 class AgentResponse(BaseModel):
@@ -50,21 +48,24 @@ class MeshBotAgent:
     def __init__(
         self,
         model: str = "openai:gpt-4o-mini",
-        knowledge_dir: Path = Path("knowledge"),
         memory_path: Optional[Path] = None,
         meshcore_connection_type: str = "mock",
+        activation_phrase: str = "@bot",
+        listen_channel: str = "0",
+        custom_prompt: Optional[str] = None,
         **meshcore_kwargs,
     ):
         self.model = model
-        self.knowledge_dir = knowledge_dir
         self.memory_path = memory_path
         self.meshcore_connection_type = meshcore_connection_type
+        self.activation_phrase = activation_phrase.lower()
+        self.listen_channel = listen_channel
+        self.custom_prompt = custom_prompt
         self.meshcore_kwargs = meshcore_kwargs
 
         # Initialize components
         self.meshcore: Optional[MeshCoreInterface] = None
         self.memory: Optional[MemoryManager] = None
-        self.knowledge: Optional[SimpleKnowledgeBase] = None
         self.agent: Optional[Agent[MeshBotDependencies, AgentResponse]] = None
 
         self._running = False
@@ -82,26 +83,35 @@ class MeshBotAgent:
         )
 
         # Initialize memory manager
-        self.memory = MemoryManager(self.memory_path or Path("memory.json"))
+        self.memory = MemoryManager(self.memory_path or Path("memory_metadata.json"))
         await self.memory.load()
 
-        # Initialize knowledge base
-        self.knowledge = create_knowledge_base(self.knowledge_dir)
-        await self.knowledge.load()
+        # Enable Memori for automatic conversation memory
+        self.memory.enable_memori()
+
+        # Build agent instructions
+        base_instructions = (
+            "You are MeshBot, an AI assistant that communicates through the MeshCore network. "
+            "You are helpful, concise, and knowledgeable. "
+            "Always be friendly and professional in your responses. "
+            "When users send 'ping', respond with 'pong'. "
+            "Keep responses relatively short and clear for network communication."
+        )
+
+        # Add custom prompt if provided
+        if self.custom_prompt:
+            instructions = (
+                f"{base_instructions}\n\nAdditional Context:\n{self.custom_prompt}"
+            )
+        else:
+            instructions = base_instructions
 
         # Create Pydantic AI agent
         self.agent = Agent(
             self.model,
             deps_type=MeshBotDependencies,
             output_type=AgentResponse,
-            instructions=(
-                "You are MeshBot, an AI assistant that communicates through the MeshCore network. "
-                "You are helpful, concise, and knowledgeable. "
-                "You can answer questions, help with tasks, and provide information from your knowledge base. "
-                "Always be friendly and professional in your responses. "
-                "When users send 'ping', respond with 'pong'. "
-                "Keep responses relatively short and clear for network communication."
-            ),
+            instructions=instructions,
         )
 
         # Register tools
@@ -114,26 +124,6 @@ class MeshBotAgent:
 
     def _register_tools(self) -> None:
         """Register tools for the agent."""
-
-        @self.agent.tool
-        async def search_knowledge(
-            ctx: RunContext[MeshBotDependencies], query: str
-        ) -> str:
-            """Search the knowledge base for information."""
-            try:
-                results = await ctx.deps.knowledge.search(query, max_results=3)
-                if not results:
-                    return "No relevant information found in the knowledge base."
-
-                response = "Found the following information:\n\n"
-                for i, result in enumerate(results, 1):
-                    response += f"{i}. {result.excerpt}\n"
-                    response += f"   Source: {result.chunk.source_file}\n\n"
-
-                return response.strip()
-            except Exception as e:
-                logger.error(f"Error searching knowledge base: {e}")
-                return "Error searching knowledge base."
 
         @self.agent.tool
         async def get_user_info(
@@ -241,31 +231,61 @@ class MeshBotAgent:
 
         logger.info("MeshBot agent stopped")
 
+    def _should_respond_to_message(self, message: MeshCoreMessage) -> bool:
+        """
+        Determine if the bot should respond to this message.
+
+        Rules:
+        - Always respond to DMs (direct messages)
+        - For channel messages, only respond if:
+          1. Message is on the configured listen_channel
+          2. Message contains the activation_phrase
+        """
+        # Always respond to DMs
+        if message.message_type == "direct":
+            return True
+
+        # For channel messages, check channel and activation phrase
+        if message.message_type == "channel":
+            # Check if it's the channel we're listening to
+            # Handle both string channel names and numeric IDs
+            message_channel = str(getattr(message, "channel", "0"))
+            if message_channel != self.listen_channel:
+                logger.debug(
+                    f"Ignoring message from channel {message_channel}, "
+                    f"listening to {self.listen_channel}"
+                )
+                return False
+
+            # Check for activation phrase (case-insensitive)
+            if self.activation_phrase.lower() in message.content.lower():
+                return True
+            else:
+                logger.debug(
+                    f"Ignoring channel message without activation phrase: {message.content}"
+                )
+                return False
+
+        # Default: don't respond to broadcast messages or unknown types
+        return False
+
     async def _handle_message(self, message: MeshCoreMessage) -> None:
         """Handle incoming message."""
         try:
             logger.info(f"Received message from {message.sender}: {message.content}")
 
+            # Check if we should respond to this message
+            if not self._should_respond_to_message(message):
+                return
+
             # Store message in memory
             await self.memory.add_message(message, is_from_user=True)
 
-            # Get conversation context
-            context = await self.memory.get_recent_context(
-                message.sender, max_messages=5
-            )
-
             # Create dependencies for this interaction
-            deps = MeshBotDependencies(
-                meshcore=self.meshcore, memory=self.memory, knowledge=self.knowledge
-            )
+            deps = MeshBotDependencies(meshcore=self.meshcore, memory=self.memory)
 
-            # Prepare prompt with context
-            prompt = message.content
-            if context:
-                prompt = f"Recent conversation:\n{context}\n\nCurrent message: {message.content}"
-
-            # Run agent
-            result = await self.agent.run(prompt, deps=deps)
+            # Run agent (Memori will automatically inject conversation context)
+            result = await self.agent.run(message.content, deps=deps)
 
             # Send response
             response = result.output.response
@@ -338,18 +358,14 @@ class MeshBotAgent:
         status = {
             "running": self._running,
             "model": self.model,
-            "meshcore_connected": self.meshcore.is_connected()
-            if self.meshcore
-            else False,
+            "meshcore_connected": (
+                self.meshcore.is_connected() if self.meshcore else False
+            ),
             "meshcore_type": self.meshcore_connection_type,
         }
 
         if self.memory:
             memory_stats = await self.memory.get_statistics()
             status["memory"] = memory_stats
-
-        if self.knowledge:
-            knowledge_stats = await self.knowledge.get_statistics()
-            status["knowledge"] = knowledge_stats
 
         return status

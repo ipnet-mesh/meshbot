@@ -3,7 +3,7 @@
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Any, Dict, Optional
 
 from dotenv import load_dotenv
 
@@ -52,6 +52,19 @@ class AIConfig:
     temperature: float = field(
         default_factory=lambda: float(os.getenv("AI_TEMPERATURE", "0.7"))
     )
+    activation_phrase: str = field(
+        default_factory=lambda: os.getenv("ACTIVATION_PHRASE", "@bot")
+    )
+    listen_channel: str = field(
+        default_factory=lambda: os.getenv("LISTEN_CHANNEL", "0")
+    )
+    custom_prompt_file: Optional[Path] = field(default=None)
+
+    def __post_init__(self) -> None:
+        """Post-initialization to handle custom_prompt_file."""
+        prompt_file_env = os.getenv("CUSTOM_PROMPT_FILE")
+        if prompt_file_env and not self.custom_prompt_file:
+            self.custom_prompt_file = Path(prompt_file_env)
 
 
 @dataclass
@@ -66,22 +79,6 @@ class MemoryConfig:
     )
     cleanup_days: int = field(
         default_factory=lambda: int(os.getenv("MEMORY_CLEANUP_DAYS", "30"))
-    )
-
-
-@dataclass
-class KnowledgeConfig:
-    """Configuration for knowledge base."""
-
-    knowledge_dir: Path = field(
-        default_factory=lambda: Path(os.getenv("KNOWLEDGE_DIR", "knowledge"))
-    )
-    use_vectors: bool = field(
-        default_factory=lambda: os.getenv("KNOWLEDGE_USE_VECTORS", "false").lower()
-        == "true"
-    )
-    max_search_results: int = field(
-        default_factory=lambda: int(os.getenv("KNOWLEDGE_MAX_RESULTS", "5"))
     )
 
 
@@ -105,7 +102,6 @@ class MeshBotConfig:
     meshcore: MeshCoreConfig = field(default_factory=MeshCoreConfig)
     ai: AIConfig = field(default_factory=AIConfig)
     memory: MemoryConfig = field(default_factory=MemoryConfig)
-    knowledge: KnowledgeConfig = field(default_factory=KnowledgeConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
 
     @classmethod
@@ -123,7 +119,6 @@ class MeshBotConfig:
             meshcore=MeshCoreConfig(**data.get("meshcore", {})),
             ai=AIConfig(**data.get("ai", {})),
             memory=MemoryConfig(**data.get("memory", {})),
-            knowledge=KnowledgeConfig(**data.get("knowledge", {})),
             logging=LoggingConfig(**data.get("logging", {})),
         )
 
@@ -135,7 +130,6 @@ class MeshBotConfig:
             "meshcore": self.meshcore.__dict__,
             "ai": self.ai.__dict__,
             "memory": self.memory.__dict__,
-            "knowledge": self.knowledge.__dict__,
             "logging": self.logging.__dict__,
         }
 
@@ -159,7 +153,6 @@ class MeshBotConfig:
 
         # Validate paths
         self.memory.storage_path.parent.mkdir(parents=True, exist_ok=True)
-        self.knowledge.knowledge_dir.mkdir(parents=True, exist_ok=True)
 
         if self.logging.file_path:
             self.logging.file_path.parent.mkdir(parents=True, exist_ok=True)

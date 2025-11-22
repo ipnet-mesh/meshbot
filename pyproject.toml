@@ -25,6 +25,7 @@ dependencies = [
     "aiofiles>=24.0.0",
     "python-dotenv>=1.0.0",
     "rich>=13.0.0",
+    "memorisdk>=2.3.0",
 ]
 
 [project.optional-dependencies]
@@ -36,11 +37,6 @@ dev = [
     "mypy>=1.0.0",
     "isort>=5.0.0",
     "pre-commit>=3.0.0",
-]
-knowledge = [
-    "sentence-transformers>=3.0.0",
-    "faiss-cpu>=1.8.0",
-    "numpy>=1.24.0",
 ]
 
 [project.scripts]

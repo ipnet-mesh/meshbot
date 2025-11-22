@@ -11,8 +11,8 @@ import click
 from rich.console import Console
 from rich.logging import RichHandler
 
-from .config import load_config, MeshBotConfig
 from .agent import MeshBotAgent
+from .config import MeshBotConfig, load_config
 
 console = Console()
 
@@ -61,9 +61,6 @@ def setup_logging(config: MeshBotConfig) -> None:
 @click.option("--meshcore-port", help="Serial port for MeshCore connection")
 @click.option("--meshcore-host", help="TCP host for MeshCore connection")
 @click.option(
-    "--knowledge-dir", type=click.Path(path_type=Path), help="Knowledge base directory"
-)
-@click.option(
     "--memory-path", type=click.Path(path_type=Path), help="Memory storage file path"
 )
 @click.option(
@@ -78,7 +75,6 @@ def main(
     meshcore_type: Optional[str],
     meshcore_port: Optional[str],
     meshcore_host: Optional[str],
-    knowledge_dir: Optional[Path],
     memory_path: Optional[Path],
     log_level: Optional[str],
     interactive: bool,
@@ -98,8 +94,6 @@ def main(
             app_config.meshcore.port = meshcore_port
         if meshcore_host:
             app_config.meshcore.host = meshcore_host
-        if knowledge_dir:
-            app_config.knowledge.knowledge_dir = knowledge_dir
         if memory_path:
             app_config.memory.storage_path = memory_path
         if log_level:
@@ -113,12 +107,24 @@ def main(
     setup_logging(app_config)
     logger = logging.getLogger(__name__)
 
+    # Load custom prompt if provided
+    custom_prompt = None
+    if app_config.ai.custom_prompt_file and app_config.ai.custom_prompt_file.exists():
+        try:
+            with open(app_config.ai.custom_prompt_file, "r", encoding="utf-8") as f:
+                custom_prompt = f.read().strip()
+            logger.info(f"Loaded custom prompt from {app_config.ai.custom_prompt_file}")
+        except Exception as e:
+            logger.warning(f"Failed to load custom prompt: {e}")
+
     # Create and run agent
     agent = MeshBotAgent(
         model=app_config.ai.model,
-        knowledge_dir=app_config.knowledge.knowledge_dir,
         memory_path=app_config.memory.storage_path,
         meshcore_connection_type=app_config.meshcore.connection_type,
+        activation_phrase=app_config.ai.activation_phrase,
+        listen_channel=app_config.ai.listen_channel,
+        custom_prompt=custom_prompt,
         port=app_config.meshcore.port,
         baudrate=app_config.meshcore.baudrate,
         host=app_config.meshcore.host,
