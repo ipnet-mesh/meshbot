@@ -7,41 +7,39 @@ from pathlib import Path
 from typing import Optional
 
 import click
-from rich.console import Console
-from rich.logging import RichHandler
 
 from .agent import MeshBotAgent
 from .config import MeshBotConfig, load_config
 
-console = Console()
 
-
-def setup_logging(config: MeshBotConfig) -> None:
+def setup_logging(level: str = "INFO", log_file: Optional[Path] = None) -> None:
     """Setup logging configuration."""
-    level = getattr(logging, config.logging.level.upper())
+    log_level = getattr(logging, level.upper())
 
-    # Configure rich handler for console
-    console_handler = RichHandler(
-        console=console,
-        show_time=True,
-        show_path=False,
-        markup=True,
-        rich_tracebacks=True,
+    # Configure basic logging
+    handlers = []
+
+    # Console handler with simple format
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setFormatter(
+        logging.Formatter('%(levelname)s: %(message)s')
     )
+    handlers.append(console_handler)
+
+    # File handler if configured
+    if log_file:
+        file_handler = logging.FileHandler(log_file)
+        file_handler.setFormatter(
+            logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        )
+        handlers.append(file_handler)
 
     # Configure root logger
     logging.basicConfig(
-        level=level,
-        format=config.logging.format,
-        handlers=[console_handler],
+        level=log_level,
+        handlers=handlers,
         force=True,
     )
-
-    # Add file handler if configured
-    if config.logging.file_path:
-        file_handler = logging.FileHandler(config.logging.file_path)
-        file_handler.setFormatter(logging.Formatter(config.logging.format))
-        logging.getLogger().addHandler(file_handler)
 
 
 @click.group()
@@ -69,9 +67,10 @@ def cli() -> None:
     "--memory-path", type=click.Path(path_type=Path), help="Memory storage file path"
 )
 @click.option(
-    "--log-level",
-    type=click.Choice(["DEBUG", "INFO", "WARNING", "ERROR"]),
-    help="Logging level",
+    "-v", "--verbose", count=True, help="Increase verbosity (-v for INFO, -vv for DEBUG)"
+)
+@click.option(
+    "--log-file", type=click.Path(path_type=Path), help="Log file path"
 )
 def run(
     config: Optional[Path],
@@ -80,9 +79,22 @@ def run(
     meshcore_port: Optional[str],
     meshcore_host: Optional[str],
     memory_path: Optional[Path],
-    log_level: Optional[str],
+    verbose: int,
+    log_file: Optional[Path],
 ) -> None:
     """Run the MeshBot agent (daemon mode)."""
+
+    # Determine log level from verbosity
+    if verbose >= 2:
+        level = "DEBUG"
+    elif verbose == 1:
+        level = "INFO"
+    else:
+        level = "WARNING"
+
+    # Setup logging first
+    setup_logging(level, log_file)
+    logger = logging.getLogger(__name__)
 
     # Load configuration
     try:
@@ -99,16 +111,10 @@ def run(
             app_config.meshcore.host = meshcore_host
         if memory_path:
             app_config.memory.storage_path = memory_path
-        if log_level:
-            app_config.logging.level = log_level
 
     except Exception as e:
-        console.print(f"[red]Error loading configuration: {e}[/red]")
+        logger.error(f"Error loading configuration: {e}")
         sys.exit(1)
-
-    # Setup logging
-    setup_logging(app_config)
-    logger = logging.getLogger(__name__)
 
     # Load custom prompt if provided
     custom_prompt = None
@@ -150,20 +156,22 @@ def run(
 
 async def run_agent(agent: MeshBotAgent) -> None:
     """Run the agent in daemon mode."""
+    logger = logging.getLogger(__name__)
+
     try:
         # Initialize and start agent
         await agent.initialize()
         await agent.start()
 
-        console.print("[green]✓ MeshBot started successfully![/green]")
+        logger.info("✓ MeshBot started successfully!")
 
         # Show status
         status = await agent.get_status()
-        console.print(f"[blue]Model: {status['model']}[/blue]")
-        console.print(
-            f"[blue]MeshCore: {status['meshcore_type']} ({'Connected' if status['meshcore_connected'] else 'Disconnected'})[/blue]"
+        logger.info(f"Model: {status['model']}")
+        logger.info(
+            f"MeshCore: {status['meshcore_type']} ({'Connected' if status['meshcore_connected'] else 'Disconnected'})"
         )
-        console.print("[blue]Running in daemon mode. Press Ctrl+C to stop.[/blue]")
+        logger.info("Running in daemon mode. Press Ctrl+C to stop.")
 
         # Run indefinitely
         try:
@@ -174,7 +182,7 @@ async def run_agent(agent: MeshBotAgent) -> None:
 
     finally:
         await agent.stop()
-        console.print("[yellow]MeshBot stopped[/yellow]")
+        logger.info("MeshBot stopped")
 
 
 @cli.command()
@@ -228,11 +236,11 @@ def test(
         app_config.logging.level = log_level
 
     except Exception as e:
-        console.print(f"[red]Error loading configuration: {e}[/red]")
+        logging.error(f"Error loading configuration: {e}")
         sys.exit(1)
 
     # Setup logging
-    setup_logging(app_config)
+    setup_logging(log_level)
     logger = logging.getLogger(__name__)
 
     # Load custom prompt if provided
@@ -254,11 +262,11 @@ def test(
         # Check if API key is configured
         api_key = os.getenv("LLM_API_KEY")
         if not api_key:
-            console.print("\n[red]ERROR: LLM_API_KEY environment variable not set![/red]")
-            console.print("[yellow]Please set your LLM API key:[/yellow]")
-            console.print("  export LLM_API_KEY='your-api-key-here'")
-            console.print("\n[yellow]Or create a .env file with:[/yellow]")
-            console.print("  LLM_API_KEY=your-api-key-here")
+            logger.error("LLM_API_KEY environment variable not set!")
+            logger.info("Please set your LLM API key:")
+            logger.info("  export LLM_API_KEY='your-api-key-here'")
+            logger.info("Or create a .env file with:")
+            logger.info("  LLM_API_KEY=your-api-key-here")
             sys.exit(1)
 
         # Create agent
@@ -284,9 +292,9 @@ def test(
             await agent.initialize()
             await agent.start()
 
-            console.print("[green]✓ MeshBot started successfully![/green]")
-            console.print(f"[blue]Simulating message from: {from_id}[/blue]")
-            console.print(f"[blue]Message: {message}[/blue]\n")
+            logger.info("✓ MeshBot started successfully!")
+            logger.info(f"Simulating message from: {from_id}")
+            logger.info(f"Message: {message}")
 
             # Create simulated message
             simulated_message = MeshCoreMessage(
@@ -298,7 +306,7 @@ def test(
             )
 
             # Process message through agent's handler with timeout
-            console.print("[cyan]Processing message (this may take a few seconds)...[/cyan]")
+            logger.info("Processing message (this may take a few seconds)...")
             success = False
             try:
                 success = await asyncio.wait_for(
@@ -306,8 +314,8 @@ def test(
                     timeout=30.0  # 30 second timeout
                 )
             except asyncio.TimeoutError:
-                console.print("\n[red]ERROR: Message processing timed out after 30 seconds[/red]")
-                console.print("[yellow]This may indicate an API connectivity issue[/yellow]")
+                logger.error("Message processing timed out after 30 seconds")
+                logger.warning("This may indicate an API connectivity issue")
             except Exception as e:
                 # Error already logged by agent, just note it failed
                 pass
@@ -316,15 +324,15 @@ def test(
             await asyncio.sleep(0.5)
 
             if not success:
-                console.print("\n[red]✗ Test failed - see errors above[/red]")
-                console.print("\n[yellow]Common issues:[/yellow]")
-                console.print("  • Invalid or expired API key")
-                console.print("  • No credits on OpenAI account")
-                console.print("  • Network connectivity issues")
-                console.print("  • Model not accessible with your API key")
+                logger.error("✗ Test failed - see errors above")
+                logger.info("Common issues:")
+                logger.info("  • Invalid or expired API key")
+                logger.info("  • No credits on OpenAI account")
+                logger.info("  • Network connectivity issues")
+                logger.info("  • Model not accessible with your API key")
                 return False
             else:
-                console.print("\n[green]✓ Test completed successfully![/green]")
+                logger.info("✓ Test completed successfully!")
                 return True
 
         finally:
