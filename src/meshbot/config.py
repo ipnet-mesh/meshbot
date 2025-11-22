@@ -52,6 +52,19 @@ class AIConfig:
     temperature: float = field(
         default_factory=lambda: float(os.getenv("AI_TEMPERATURE", "0.7"))
     )
+    activation_phrase: str = field(
+        default_factory=lambda: os.getenv("ACTIVATION_PHRASE", "@bot")
+    )
+    listen_channel: str = field(
+        default_factory=lambda: os.getenv("LISTEN_CHANNEL", "0")
+    )
+    custom_prompt_file: Optional[Path] = field(default=None)
+
+    def __post_init__(self) -> None:
+        """Post-initialization to handle custom_prompt_file."""
+        prompt_file_env = os.getenv("CUSTOM_PROMPT_FILE")
+        if prompt_file_env and not self.custom_prompt_file:
+            self.custom_prompt_file = Path(prompt_file_env)
 
 
 @dataclass

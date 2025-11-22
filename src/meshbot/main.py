@@ -107,11 +107,24 @@ def main(
     setup_logging(app_config)
     logger = logging.getLogger(__name__)
 
+    # Load custom prompt if provided
+    custom_prompt = None
+    if app_config.ai.custom_prompt_file and app_config.ai.custom_prompt_file.exists():
+        try:
+            with open(app_config.ai.custom_prompt_file, "r", encoding="utf-8") as f:
+                custom_prompt = f.read().strip()
+            logger.info(f"Loaded custom prompt from {app_config.ai.custom_prompt_file}")
+        except Exception as e:
+            logger.warning(f"Failed to load custom prompt: {e}")
+
     # Create and run agent
     agent = MeshBotAgent(
         model=app_config.ai.model,
         memory_path=app_config.memory.storage_path,
         meshcore_connection_type=app_config.meshcore.connection_type,
+        activation_phrase=app_config.ai.activation_phrase,
+        listen_channel=app_config.ai.listen_channel,
+        custom_prompt=custom_prompt,
         port=app_config.meshcore.port,
         baudrate=app_config.meshcore.baudrate,
         host=app_config.meshcore.host,

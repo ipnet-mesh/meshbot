@@ -28,6 +28,7 @@ class MeshCoreMessage:
     content: str
     timestamp: float
     message_type: str = "direct"  # direct, channel, broadcast
+    channel: Optional[str] = None  # Channel ID or name (for channel messages)
 
 
 @dataclass
