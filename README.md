@@ -1,16 +1,17 @@
 # MeshBot - AI Agent for MeshCore Network
 
-MeshBot is an intelligent AI agent that communicates through the MeshCore network using Pydantic AI as its framework. It maintains conversation history with users, provides access to a local knowledge base, and can handle various types of interactions including ping requests, user queries, and command processing.
+MeshBot is an intelligent AI agent that communicates through the MeshCore network using Pydantic AI as its framework. It maintains conversation history with users through simple text file logs and handles both direct messages and channel communications with automatic message length management for MeshCore's constraints.
 
 ## Features
 
 - **🤖 AI-Powered**: Built with Pydantic AI for structured, type-safe agent development
 - **📡 MeshCore Integration**: Communicates via MeshCore network (serial, TCP, BLE, or mock)
-- **🧠 Memory System**: Maintains conversation history and user preferences
-- **📚 Knowledge Base**: Local text file search with optional vector embeddings
-- **🔧 Tool System**: Extensible tools for searching, pinging, and user management
+- **🧠 Simple Memory System**: Text file-based chat logs (1000 lines per conversation)
+- **💬 Smart Messaging**: Automatic message splitting with length limits (configurable, default 120 chars)
+- **🔧 Tool System**: Extensible tools for pinging, contact management, and conversation history
 - **⚙️ Configurable**: Flexible configuration via files and environment variables
-- **🎯 Message Routing**: Intelligent message handling with priority-based routing
+- **🎯 Message Routing**: Intelligent DM and channel message handling with activation phrases
+- **🌐 OpenAI-Compatible**: Works with any OpenAI-compatible endpoint (OpenAI, Groq, Ollama, etc.)
 
 ## Quick Start
 
@@ -21,24 +22,25 @@ MeshBot is an intelligent AI agent that communicates through the MeshCore networ
 git clone <repository-url>
 cd meshbot
 
-# Install in development mode
-pip install -e .
+# Create virtual environment
+python -m venv .venv
+source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 
-# Install optional dependencies for knowledge base
-pip install -e ".[knowledge]"
+# Install in development mode
+pip install -e ".[dev]"
 ```
 
 ### Basic Usage
 
 ```bash
 # Run with mock connection (for testing)
-meshbot --meshcore-type mock --interactive
+meshbot test --meshcore-type mock
 
 # Run with serial connection
 meshbot --meshcore-type serial --meshcore-port /dev/ttyUSB0
 
-# Run with custom model
-meshbot --model openai:gpt-4o --meshcore-type mock
+# Run with custom prompt file
+meshbot --custom-prompt my_prompt.txt --meshcore-type mock
 ```
 
 ### Environment Variables
@@ -46,9 +48,15 @@ meshbot --model openai:gpt-4o --meshcore-type mock
 Create a `.env` file:
 
 ```bash
-# AI Configuration
-AI_MODEL=openai:gpt-4o-mini
-OPENAI_API_KEY=your_api_key_here
+# LLM Configuration (OpenAI-compatible)
+LLM_MODEL=openai:gpt-4o-mini
+LLM_API_KEY=your_api_key_here
+# LLM_BASE_URL=http://localhost:11434/v1  # For Ollama or other endpoints
+
+# Bot Behavior
+ACTIVATION_PHRASE=@bot          # Required in channel messages
+LISTEN_CHANNEL=0                # Channel to monitor
+MAX_MESSAGE_LENGTH=120          # MeshCore message length limit
 
 # MeshCore Configuration
 MESHCORE_CONNECTION_TYPE=mock
@@ -56,12 +64,29 @@ MESHCORE_CONNECTION_TYPE=mock
 # MESHCORE_HOST=192.168.1.100
 # MESHCORE_BAUDRATE=115200
 
-# Storage Configuration
-MEMORY_PATH=memory.json
-KNOWLEDGE_DIR=knowledge
-
 # Logging
 LOG_LEVEL=INFO
+```
+
+### Using a Custom Prompt File
+
+Create a custom prompt file (e.g., `my_prompt.txt`):
+
+```
+You are a helpful assistant for the mesh network.
+You specialize in network troubleshooting and device management.
+Always be concise and technical in your responses.
+```
+
+Run with the custom prompt:
+
+```bash
+# Via command line
+meshbot --custom-prompt my_prompt.txt --meshcore-type mock
+
+# Via environment variable
+export CUSTOM_PROMPT_FILE=my_prompt.txt
+meshbot
 ```
 
 ## Architecture
@@ -71,108 +96,73 @@ LOG_LEVEL=INFO
 1. **MeshCore Interface** (`meshcore_interface.py`)
    - Abstract interface for MeshCore communication
    - Mock implementation for testing
-   - Real implementation using meshcore_py library
+   - Real implementation using meshcore library
+   - Auto clock sync and local advertisement on startup
 
 2. **Memory Manager** (`memory.py`)
-   - User conversation history
-   - Preference storage
-   - Context management
+   - Simple text file-based chat logs
+   - Separate logs for DMs and channels
+   - Automatic trimming to 1000 lines per conversation
+   - Format: `timestamp|role|content`
 
-3. **Knowledge Base** (`knowledge.py`)
-   - Text file indexing and search
-   - Optional vector embeddings
-   - RAG capabilities
-
-4. **AI Agent** (`agent.py`)
+3. **AI Agent** (`agent.py`)
    - Pydantic AI agent with tools
    - Structured responses
+   - Automatic message splitting for length limits
    - Dependency injection
 
-5. **Message Router** (`message_router.py`)
-   - Priority-based message handling
-   - Command parsing
-   - Extensible handler system
-
-6. **Configuration** (`config.py`)
+4. **Configuration** (`config.py`)
    - Environment-based configuration
    - JSON file support
    - Validation
 
+### Message Handling
+
+#### Direct Messages (DMs)
+- Bot **always** responds to direct messages
+- No activation phrase required
+- Each user gets a separate conversation log in `logs/dm_{user_id}.txt`
+
+#### Channel Messages
+- Bot only responds if message contains the activation phrase (default: `@bot`)
+- Only monitors the configured listen channel (default: channel 0)
+- Shared conversation log in `logs/channel.txt`
+
+Example:
+```
+User: @bot what's the weather?     → Bot responds
+User: hello everyone              → Bot ignores (no activation phrase)
+```
+
+#### Message Length Limits
+
+MeshCore has character limits (default 120). MeshBot automatically:
+- Splits long responses into multiple messages
+- Breaks on word boundaries (never mid-word)
+- Adds `(1/3)`, `(2/3)`, `(3/3)` indicators
+- Adds 0.5s delay between chunks
+
+Example:
+```
+Long response: "This is a very long message that exceeds the maximum allowed length..."
+
+Sent as:
+"This is a very long message that exceeds the (1/2)"
+"maximum allowed length... (2/2)"
+```
+
 ## Usage Examples
 
-### Interactive Mode
+### Testing Mode
 
 ```bash
-meshbot --interactive
+# Interactive testing with mock MeshCore
+meshbot test --meshcore-type mock
+
+# The test command provides an interactive prompt:
+# Enter messages to send (or 'quit' to exit)
+# > Hello!
 ```
-
-In interactive mode, you can:
-- Send messages: `node1: Hello, how are you?`
-- Check status: `status`
-- List contacts: `contacts`
-- Get help: `help`
-
-### Programmatic Usage
-
-```python
-import asyncio
-from meshbot import MeshBotAgent
-from pathlib import Path
-
-async def main():
-    # Create agent
-    agent = MeshBotAgent(
-        model="openai:gpt-4o-mini",
-        knowledge_dir=Path("knowledge"),
-        meshcore_connection_type="mock"
-    )
-    
-    # Initialize and start
-    await agent.initialize()
-    await agent.start()
-    
-    # Send a message
-    success = await agent.send_message("node1", "Hello!")
-    
-    # Keep running
-    await asyncio.sleep(10)
-    
-    # Stop
-    await agent.stop()
-
-asyncio.run(main())
-```
-
-## Knowledge Base
-
-The knowledge base automatically indexes text files from the configured directory:
-
-### Supported File Types
-- `.txt` - Plain text
-- `.md` - Markdown
-- `.rst` - reStructuredText
-- `.py` - Python code
-- `.js` - JavaScript
-- `.html` - HTML
-- `.css` - CSS
-
-### Search Capabilities
-
-- **Keyword Search**: Fast text-based search
-- **Vector Search**: Semantic search with sentence transformers (optional)
-- **Contextual Results**: Excerpts with highlighting
-
-### Example Knowledge Files
-
-```
-knowledge/
-├── README.md
-├── meshcore_basics.txt
-├── getting_started.md
-└── troubleshooting.txt
-```
-
-## Configuration
 
 ### Configuration File
 
@@ -189,47 +179,132 @@ Create `config.json`:
   },
   "ai": {
     "model": "openai:gpt-4o-mini",
+    "base_url": null,
     "max_tokens": 500,
-    "temperature": 0.7
+    "temperature": 0.7,
+    "activation_phrase": "@bot",
+    "listen_channel": "0",
+    "max_message_length": 120
   },
   "memory": {
-    "storage_path": "memory.json",
-    "max_messages_per_user": 100,
-    "cleanup_days": 30
-  },
-  "knowledge": {
-    "knowledge_dir": "knowledge",
-    "use_vectors": false,
-    "max_search_results": 5
+    "storage_path": "logs"
   },
   "logging": {
-    "level": "INFO",
-    "format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    "level": "INFO"
   }
 }
 ```
 
-## Commands
+Run with config:
+```bash
+meshbot --config config.json
+```
 
-### Built-in Commands
+### Programmatic Usage
 
-- `ping` - Test connectivity (responds with "pong")
-- `help` - Show available commands and help information
-- `search <query>` - Search knowledge base
-- `contacts` - List available MeshCore contacts
-- `info` - Get your user information and statistics
-- `history` - Show recent conversation history
-- `status` - Show bot status and statistics
+```python
+import asyncio
+from meshbot import MeshBotAgent
+from pathlib import Path
 
-### AI Tools
+async def main():
+    # Create agent with custom prompt
+    with open("my_prompt.txt") as f:
+        custom_prompt = f.read()
 
-The agent has access to several tools:
+    agent = MeshBotAgent(
+        model="openai:gpt-4o-mini",
+        meshcore_connection_type="mock",
+        activation_phrase="@assistant",
+        listen_channel="0",
+        max_message_length=120,
+        custom_prompt=custom_prompt
+    )
 
-- **Knowledge Search**: Search the local knowledge base
-- **User Info**: Retrieve information about users
+    # Initialize and start
+    await agent.initialize()
+    await agent.start()
+
+    # Send a message
+    success = await agent.send_message("node1", "Hello!")
+
+    # Keep running
+    await asyncio.sleep(60)
+
+    # Stop
+    await agent.stop()
+
+asyncio.run(main())
+```
+
+## Configuration
+
+### LLM Providers
+
+MeshBot works with any OpenAI-compatible API:
+
+#### OpenAI
+```bash
+LLM_MODEL=openai:gpt-4o-mini
+LLM_API_KEY=sk-...
+```
+
+#### Groq
+```bash
+LLM_MODEL=openai:llama-3.1-70b-versatile
+LLM_API_KEY=gsk_...
+LLM_BASE_URL=https://api.groq.com/openai/v1
+```
+
+#### Ollama (local)
+```bash
+LLM_MODEL=openai:llama2
+LLM_BASE_URL=http://localhost:11434/v1
+# No API key needed for local Ollama
+```
+
+### Message Behavior
+
+```bash
+# Channel settings
+ACTIVATION_PHRASE=@bot        # Phrase required in channel messages
+LISTEN_CHANNEL=0              # Which channel to monitor
+
+# Message length
+MAX_MESSAGE_LENGTH=120        # Character limit per message chunk
+```
+
+## Chat Logs
+
+Conversation history is stored in simple text files:
+
+```
+logs/
+├── channel.txt              # Channel conversation (all users)
+└── dm_2369759a4926.txt     # Direct message with specific user
+```
+
+Log format:
+```
+1734567890.123|user|Hello, how are you?
+1734567891.456|assistant|I'm doing well, thanks!
+```
+
+Logs automatically:
+- Trim to 1000 lines when exceeded
+- Persist across restarts
+- Can be viewed/edited as plain text files
+
+## AI Tools
+
+The agent has access to built-in tools:
+
 - **Ping Node**: Test connectivity to specific nodes
-- **Get Contacts**: List available contacts
-- **Conversation History**: Access recent messages
+- **Get Contacts**: List available MeshCore contacts
+- **Get User Info**: Retrieve user statistics from chat logs
+- **Conversation History**: Access recent messages with a user
+
+When users ask questions, the agent can automatically use these tools.
 
 ## Development
 
@@ -239,16 +314,15 @@ The agent has access to several tools:
 meshbot/
 ├── src/meshbot/
 │   ├── __init__.py
-│   ├── agent.py              # Main AI agent
+│   ├── agent.py              # Main AI agent with message splitting
 │   ├── meshcore_interface.py  # MeshCore communication
-│   ├── memory.py             # User memory management
-│   ├── knowledge.py          # Knowledge base system
-│   ├── message_router.py     # Message handling
+│   ├── memory.py             # Text file-based chat logs
 │   ├── config.py            # Configuration management
 │   └── main.py             # CLI entry point
-├── knowledge/               # Knowledge base files
+├── logs/                     # Chat log files (auto-created)
 ├── tests/                   # Test suite
 ├── examples/               # Usage examples
+├── CLAUDE.md / AGENTS.md   # Development guidelines
 └── pyproject.toml          # Project configuration
 ```
 
@@ -262,24 +336,15 @@ pip install -e ".[dev]"
 pytest
 
 # Run with coverage
-pytest --cov=meshbot
+pytest --cov=meshbot --cov-report=html
 ```
 
 ### Code Quality
 
-```bash
-# Format code
-black src/ tests/
-
-# Sort imports
-isort src/ tests/
-
-# Type checking
-mypy src/
-
-# Linting
-flake8 src/
-```
+See `AGENTS.md` for full development workflow including:
+- Pre-commit hooks (black, isort, mypy, flake8, bandit)
+- Virtual environment setup
+- Testing guidelines
 
 ## Production Deployment
 
@@ -302,13 +367,13 @@ meshbot --meshcore-type ble --meshcore-address XX:XX:XX:XX:XX:XX
 
 ```bash
 # Production environment variables
-export AI_MODEL=openai:gpt-4o-mini
-export OPENAI_API_KEY=your_production_key
+export LLM_MODEL=openai:gpt-4o-mini
+export LLM_API_KEY=your_production_key
 export MESHCORE_CONNECTION_TYPE=serial
 export MESHCORE_PORT=/dev/ttyUSB0
+export ACTIVATION_PHRASE=@meshbot
+export MAX_MESSAGE_LENGTH=120
 export LOG_LEVEL=INFO
-export MEMORY_PATH=/var/lib/meshbot/memory.json
-export KNOWLEDGE_DIR=/etc/meshbot/knowledge
 ```
 
 ### Systemd Service
@@ -325,7 +390,8 @@ Type=simple
 User=meshbot
 WorkingDirectory=/opt/meshbot
 Environment=PYTHONPATH=/opt/meshbot/src
-ExecStart=/opt/meshbot/venv/bin/meshbot --config /etc/meshbot/config.json
+EnvironmentFile=/etc/meshbot/environment
+ExecStart=/opt/meshbot/.venv/bin/meshbot --meshcore-type serial
 Restart=always
 RestartSec=10
 
@@ -333,25 +399,53 @@ RestartSec=10
 WantedBy=multi-user.target
 ```
 
+Create `/etc/meshbot/environment`:
+```
+LLM_MODEL=openai:gpt-4o-mini
+LLM_API_KEY=your_key_here
+MESHCORE_PORT=/dev/ttyUSB0
+ACTIVATION_PHRASE=@bot
+MAX_MESSAGE_LENGTH=120
+```
+
+Enable and start:
+```bash
+sudo systemctl enable meshbot
+sudo systemctl start meshbot
+sudo systemctl status meshbot
+```
+
 ## Troubleshooting
 
 ### Common Issues
 
-1. **Import Errors**: Ensure all dependencies are installed with `pip install -e ".[knowledge]"`
-2. **MeshCore Connection**: Check port permissions and device availability
-3. **API Keys**: Set `OPENAI_API_KEY` environment variable
-4. **Memory File**: Ensure write permissions for memory file path
-5. **Knowledge Base**: Verify knowledge directory exists and contains text files
+1. **Import Errors**: Ensure virtual environment is activated and dependencies installed
+2. **MeshCore Connection**: Check port permissions (`sudo usermod -a -G dialout $USER`)
+3. **API Keys**: Set `LLM_API_KEY` environment variable
+4. **Long Messages**: Adjust `MAX_MESSAGE_LENGTH` if messages are too short/long
+5. **Channel Not Responding**: Ensure messages include activation phrase (default `@bot`)
 
 ### Debug Mode
 
 ```bash
-# Enable debug logging
-meshbot --log-level DEBUG
+# Enable verbose logging
+meshbot -vv --meshcore-type mock
 
-# Enable MeshCore debug
-export MESHCORE_DEBUG=true
-meshbot
+# Test with specific prompt
+meshbot test --custom-prompt debug_prompt.txt -vv
+```
+
+### Viewing Logs
+
+```bash
+# View channel conversation
+cat logs/channel.txt
+
+# View DM with specific user
+cat logs/dm_2369759a4926.txt
+
+# Watch logs in real-time
+tail -f logs/channel.txt
 ```
 
 ## Contributing
@@ -360,8 +454,10 @@ meshbot
 2. Create a feature branch
 3. Make your changes
 4. Add tests for new functionality
-5. Run the test suite
+5. Run pre-commit hooks: `pre-commit run --all-files`
 6. Submit a pull request
+
+See `AGENTS.md` for detailed development guidelines.
 
 ## License
 
@@ -371,5 +467,4 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 - [Pydantic AI](https://ai.pydantic.dev/) - Agent framework
 - [MeshCore](https://github.com/meshcore) - Network communication library
-- [Rich](https://rich.readthedocs.io/) - Terminal output
 - [Click](https://click.palletsprojects.com/) - CLI framework
