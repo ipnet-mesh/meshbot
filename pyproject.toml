@@ -40,7 +40,7 @@ dev = [
 ]
 
 [project.scripts]
-meshbot = "meshbot.main:main"
+meshbot = "meshbot.main:cli"
 
 [tool.setuptools.packages.find]
 where = ["src"]
