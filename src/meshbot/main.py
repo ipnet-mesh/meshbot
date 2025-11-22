@@ -14,7 +14,12 @@ from .config import MeshBotConfig, load_config
 
 def setup_logging(level: str = "INFO", log_file: Optional[Path] = None) -> None:
     """Setup logging configuration."""
-    log_level = getattr(logging, level.upper())
+    # Add custom TRACE level if not already defined
+    if not hasattr(logging, 'TRACE'):
+        logging.TRACE = 5
+        logging.addLevelName(logging.TRACE, 'TRACE')
+
+    log_level = getattr(logging, level.upper(), logging.INFO)
 
     # Configure basic logging
     handlers = []
@@ -72,7 +77,7 @@ def cli() -> None:
     help="Path to custom prompt file",
 )
 @click.option(
-    "-v", "--verbose", count=True, help="Increase verbosity (-v for INFO, -vv for DEBUG)"
+    "-v", "--verbose", count=True, help="Increase verbosity (-v for DEBUG, -vv for TRACE)"
 )
 @click.option(
     "--log-file", type=click.Path(path_type=Path), help="Log file path"
@@ -92,11 +97,11 @@ def run(
 
     # Determine log level from verbosity
     if verbose >= 2:
-        level = "DEBUG"
+        level = "TRACE"
     elif verbose == 1:
-        level = "INFO"
+        level = "DEBUG"
     else:
-        level = "WARNING"
+        level = "INFO"
 
     # Setup logging first
     setup_logging(level, log_file)
@@ -220,7 +225,7 @@ async def run_agent(agent: MeshBotAgent) -> None:
     "-v",
     "--verbose",
     count=True,
-    help="Increase verbosity (-v for INFO, -vv for DEBUG)",
+    help="Increase verbosity (-v for DEBUG, -vv for TRACE)",
 )
 def test(
     from_id: str,
@@ -240,11 +245,11 @@ def test(
 
     # Determine log level from verbosity
     if verbose >= 2:
-        level = "DEBUG"
+        level = "TRACE"
     elif verbose == 1:
-        level = "INFO"
+        level = "DEBUG"
     else:
-        level = "WARNING"
+        level = "INFO"
 
     # Load configuration
     try:
