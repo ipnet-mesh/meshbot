@@ -1,151 +1,66 @@
-"""Memory management for MeshBot with simple message history."""
+"""Memory management for MeshBot with simple text file chat logs."""
 
 import asyncio
-import json
 import logging
-from collections import deque
-from dataclasses import dataclass, field
-from datetime import datetime
 from pathlib import Path
-from typing import Any, Deque, Dict, List, Optional
-
-from meshbot.meshcore_interface import MeshCoreMessage
+from typing import Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
 
-@dataclass
-class ConversationMessage:
-    """Represents a single message in a conversation."""
-
-    role: str  # "user" or "assistant"
-    content: str
-    timestamp: float
-    message_type: str = "direct"  # direct, channel, broadcast
-
-
-@dataclass
-class UserMemory:
-    """Memory data for a single user."""
-
-    user_id: str  # Public key or node identifier
-    user_name: Optional[str] = None
-    first_seen: Optional[float] = None
-    last_seen: Optional[float] = None
-    total_messages: int = 0
-    preferences: Optional[Dict[str, Any]] = None
-    context: Optional[Dict[str, Any]] = None  # Additional context about the user
-
-    def __post_init__(self) -> None:
-        if self.preferences is None:
-            self.preferences = {}
-        if self.context is None:
-            self.context = {}
-
-
 class MemoryManager:
-    """Manages user memory and conversation history."""
+    """Manages conversation history using simple text file logs."""
 
     def __init__(
         self,
         storage_path: Optional[Path] = None,
-        max_dm_history: int = 100,
-        max_channel_history: int = 1000,
+        max_lines: int = 1000,
     ):
         """
-        Initialize MemoryManager with simple message history.
+        Initialize MemoryManager with file-based chat logs.
 
         Args:
-            storage_path: Path for storing user metadata (preferences, context)
-            max_dm_history: Maximum number of messages to keep per DM conversation
-            max_channel_history: Maximum number of messages to keep for channel history
+            storage_path: Directory for storing chat log files (not used, kept for compatibility)
+            max_lines: Maximum number of lines to keep in each log file
         """
-        self.storage_path = storage_path or Path("memory_metadata.json")
-        self._metadata: Dict[str, UserMemory] = {}
-        self._lock = asyncio.Lock()
-        self._dirty = False
+        self.logs_dir = Path("logs")
+        self.max_lines = max_lines
 
-        # Message history buffers
-        self.max_dm_history = max_dm_history
-        self.max_channel_history = max_channel_history
+        # In-memory cache of loaded logs
+        self._dm_logs: Dict[str, List[str]] = {}  # user_id -> list of log lines
+        self._channel_log: List[str] = []
 
-        # Per-user DM history (user_id -> deque of messages)
-        self._dm_history: Dict[str, Deque[ConversationMessage]] = {}
-
-        # General channel history (deque of messages from all users)
-        self._channel_history: Deque[ConversationMessage] = deque(
-            maxlen=max_channel_history
-        )
-
-        logger.info(
-            f"Memory manager initialized: {max_dm_history} messages per DM, "
-            f"{max_channel_history} messages in channel history"
-        )
+        logger.info(f"Memory manager initialized: {max_lines} lines per log file")
 
     async def load(self) -> None:
-        """Load user metadata from storage."""
-        async with self._lock:
-            try:
-                if self.storage_path.exists():
-                    with open(self.storage_path, "r", encoding="utf-8") as f:
-                        data = json.load(f)
+        """Load all chat logs from disk."""
+        try:
+            # Create logs directory if it doesn't exist
+            self.logs_dir.mkdir(exist_ok=True)
 
-                    for user_id, memory_data in data.items():
-                        # Convert timestamp strings back to floats
-                        if memory_data.get("first_seen"):
-                            memory_data["first_seen"] = float(memory_data["first_seen"])
-                        if memory_data.get("last_seen"):
-                            memory_data["last_seen"] = float(memory_data["last_seen"])
+            # Load channel log
+            channel_log_path = self.logs_dir / "channel.txt"
+            if channel_log_path.exists():
+                with open(channel_log_path, "r", encoding="utf-8") as f:
+                    self._channel_log = f.read().splitlines()
+                logger.info(f"Loaded {len(self._channel_log)} lines from channel log")
 
-                        # Remove old conversation_history field if it exists
-                        memory_data.pop("conversation_history", None)
+            # Load all DM logs
+            dm_log_count = 0
+            for log_file in self.logs_dir.glob("dm_*.txt"):
+                user_id = log_file.stem.replace("dm_", "")
+                with open(log_file, "r", encoding="utf-8") as f:
+                    self._dm_logs[user_id] = f.read().splitlines()
+                dm_log_count += 1
 
-                        self._metadata[user_id] = UserMemory(**memory_data)
+            logger.info(f"Loaded {dm_log_count} DM logs from disk")
 
-                    logger.info(
-                        f"Loaded {len(self._metadata)} user metadata from {self.storage_path}"
-                    )
-                else:
-                    logger.info("No existing metadata file found, starting fresh")
-
-            except Exception as e:
-                logger.error(f"Error loading metadata: {e}")
-                self._metadata = {}
+        except Exception as e:
+            logger.error(f"Error loading logs: {e}")
 
     async def save(self) -> None:
-        """Save user metadata to storage."""
-        async with self._lock:
-            if not self._dirty:
-                return
-
-            try:
-                # Prepare data for JSON serialization
-                data = {}
-                for user_id, memory in self._metadata.items():
-                    memory_dict = {
-                        "user_id": memory.user_id,
-                        "user_name": memory.user_name,
-                        "first_seen": memory.first_seen,
-                        "last_seen": memory.last_seen,
-                        "total_messages": memory.total_messages,
-                        "preferences": memory.preferences,
-                        "context": memory.context,
-                    }
-                    data[user_id] = memory_dict
-
-                # Create parent directory if it doesn't exist
-                self.storage_path.parent.mkdir(parents=True, exist_ok=True)
-
-                with open(self.storage_path, "w", encoding="utf-8") as f:
-                    json.dump(data, f, indent=2, ensure_ascii=False)
-
-                self._dirty = False
-                logger.debug(
-                    f"Saved {len(self._metadata)} user metadata to {self.storage_path}"
-                )
-
-            except Exception as e:
-                logger.error(f"Error saving metadata: {e}")
+        """Save is a no-op since we write directly to files on each message."""
+        pass
 
     async def add_message(
         self,
@@ -156,7 +71,7 @@ class MemoryManager:
         timestamp: Optional[float] = None,
     ) -> None:
         """
-        Add a message to conversation history.
+        Add a message to conversation history by appending to log file.
 
         Args:
             user_id: The user ID
@@ -165,36 +80,48 @@ class MemoryManager:
             message_type: "direct", "channel", or "broadcast"
             timestamp: Message timestamp (defaults to current time)
         """
-        logger.debug(f"add_message called: user_id={user_id}, role={role}, message_type={message_type}")
-
         if timestamp is None:
             timestamp = asyncio.get_event_loop().time()
 
-        msg = ConversationMessage(
-            role=role, content=content, timestamp=timestamp, message_type=message_type
-        )
-        logger.debug("ConversationMessage created, attempting to acquire lock...")
+        # Format: timestamp|role|content
+        # Escape pipes in content by replacing with unicode pipe char
+        safe_content = content.replace("|", "│")
+        log_line = f"{timestamp}|{role}|{safe_content}"
 
-        async with self._lock:
-            logger.debug("Lock acquired successfully")
-            # Add to channel history if it's a channel message
+        try:
             if message_type == "channel":
-                self._channel_history.append(msg)
-                logger.debug(
-                    f"Added message to channel history ({len(self._channel_history)}/{self.max_channel_history})"
-                )
+                # Append to channel log
+                log_path = self.logs_dir / "channel.txt"
+                self._channel_log.append(log_line)
+
+                # Trim if too long
+                if len(self._channel_log) > self.max_lines:
+                    self._channel_log = self._channel_log[-self.max_lines:]
+
+                # Write entire log back to file
+                with open(log_path, "w", encoding="utf-8") as f:
+                    f.write("\n".join(self._channel_log) + "\n")
+
             else:
-                # Add to DM history for this user
-                if user_id not in self._dm_history:
-                    self._dm_history[user_id] = deque(maxlen=self.max_dm_history)
+                # Append to DM log for this user
+                if user_id not in self._dm_logs:
+                    self._dm_logs[user_id] = []
 
-                self._dm_history[user_id].append(msg)
-                logger.debug(
-                    f"Added message to DM history for {user_id} "
-                    f"({len(self._dm_history[user_id])}/{self.max_dm_history})"
-                )
+                self._dm_logs[user_id].append(log_line)
 
-        logger.debug("add_message completed successfully")
+                # Trim if too long
+                if len(self._dm_logs[user_id]) > self.max_lines:
+                    self._dm_logs[user_id] = self._dm_logs[user_id][-self.max_lines:]
+
+                # Write entire log back to file
+                log_path = self.logs_dir / f"dm_{user_id}.txt"
+                with open(log_path, "w", encoding="utf-8") as f:
+                    f.write("\n".join(self._dm_logs[user_id]) + "\n")
+
+            logger.debug(f"Added message to {message_type} log for {user_id}")
+
+        except Exception as e:
+            logger.error(f"Error saving message to log: {e}")
 
     async def get_conversation_context(
         self, user_id: str, message_type: str = "direct", max_messages: Optional[int] = None
@@ -210,172 +137,90 @@ class MemoryManager:
         Returns:
             List of message dicts with 'role' and 'content' keys
         """
-        async with self._lock:
-            messages: List[ConversationMessage] = []
+        try:
+            log_lines = []
 
             if message_type == "channel":
-                messages = list(self._channel_history)
+                log_lines = self._channel_log
             else:
-                if user_id in self._dm_history:
-                    messages = list(self._dm_history[user_id])
+                log_lines = self._dm_logs.get(user_id, [])
 
             # Apply max_messages limit if specified
-            if max_messages and len(messages) > max_messages:
-                messages = messages[-max_messages:]
+            if max_messages and len(log_lines) > max_messages:
+                log_lines = log_lines[-max_messages:]
 
-            # Convert to LLM format
-            return [{"role": msg.role, "content": msg.content} for msg in messages]
+            # Parse log lines and convert to LLM format
+            messages = []
+            for line in log_lines:
+                parts = line.split("|", 2)  # Split on first 2 pipes only
+                if len(parts) == 3:
+                    timestamp, role, content = parts
+                    # Restore original pipes (that were escaped)
+                    content = content.replace("│", "|")
+                    messages.append({"role": role, "content": content})
 
-    async def get_user_memory(self, user_id: str) -> UserMemory:
-        """Get or create memory for a user."""
-        async with self._lock:
-            if user_id not in self._metadata:
-                self._metadata[user_id] = UserMemory(user_id=user_id)
-                self._dirty = True
-            return self._metadata[user_id]
+            return messages
 
-    async def update_user_info(
-        self, user_id: str, user_name: Optional[str] = None
-    ) -> None:
-        """Update user information."""
-        # Note: This method should be called from within a lock context
-        if user_id not in self._metadata:
-            self._metadata[user_id] = UserMemory(user_id=user_id)
-            self._dirty = True
+        except Exception as e:
+            logger.error(f"Error getting conversation context: {e}")
+            return []
 
-        memory = self._metadata[user_id]
+    async def get_conversation_history(
+        self, user_id: str, limit: int = 10
+    ) -> List[Dict[str, str]]:
+        """
+        Get recent conversation history with a user (for tools).
 
-        if user_name and user_name != memory.user_name:
-            memory.user_name = user_name
-            self._dirty = True
+        Args:
+            user_id: The user ID
+            limit: Maximum number of messages to return
 
-        current_time = asyncio.get_event_loop().time()
+        Returns:
+            List of message dicts with 'role' and 'content' keys
+        """
+        return await self.get_conversation_context(user_id, "direct", limit)
 
-        if memory.first_seen is None:
-            memory.first_seen = current_time
-            self._dirty = True
+    async def get_user_memory(self, user_id: str) -> Dict[str, any]:
+        """
+        Get basic info about a user based on their log file.
 
-        memory.last_seen = current_time
-        self._dirty = True
+        Returns a dict with user_id, total_messages, first_seen, last_seen.
+        """
+        log_lines = self._dm_logs.get(user_id, [])
 
+        first_seen = None
+        last_seen = None
 
-    async def set_user_preference(self, user_id: str, key: str, value: Any) -> None:
-        """Set a user preference."""
-        async with self._lock:
-            if user_id not in self._metadata:
-                self._metadata[user_id] = UserMemory(user_id=user_id)
-                self._dirty = True
+        if log_lines:
+            # Parse first and last timestamps
+            try:
+                first_parts = log_lines[0].split("|", 1)
+                if first_parts:
+                    first_seen = float(first_parts[0])
 
-            memory = self._metadata[user_id]
-            if memory.preferences is None:
-                memory.preferences = {}
-            memory.preferences[key] = value
-            self._dirty = True
+                last_parts = log_lines[-1].split("|", 1)
+                if last_parts:
+                    last_seen = float(last_parts[0])
+            except (ValueError, IndexError):
+                pass
 
-    async def get_user_preference(
-        self, user_id: str, key: str, default: Any = None
-    ) -> Any:
-        """Get a user preference."""
-        async with self._lock:
-            if user_id not in self._metadata:
-                return default
+        return {
+            "user_id": user_id,
+            "user_name": None,
+            "total_messages": len(log_lines),
+            "first_seen": first_seen,
+            "last_seen": last_seen,
+        }
 
-            memory = self._metadata[user_id]
-            if memory.preferences is None:
-                return default
-            return memory.preferences.get(key, default)
-
-    async def set_user_context(self, user_id: str, key: str, value: Any) -> None:
-        """Set user context information."""
-        async with self._lock:
-            if user_id not in self._metadata:
-                self._metadata[user_id] = UserMemory(user_id=user_id)
-                self._dirty = True
-
-            memory = self._metadata[user_id]
-            if memory.context is None:
-                memory.context = {}
-            memory.context[key] = value
-            self._dirty = True
-
-    async def get_user_context(
-        self, user_id: str, key: str, default: Any = None
-    ) -> Any:
-        """Get user context information."""
-        async with self._lock:
-            if user_id not in self._metadata:
-                return default
-
-            memory = self._metadata[user_id]
-            if memory.context is None:
-                return default
-            return memory.context.get(key, default)
-
-    async def get_all_users(self) -> List[UserMemory]:
-        """Get all user memories."""
-        async with self._lock:
-            return list(self._metadata.values())
-
-    async def get_active_users(self, hours: int = 24) -> List[UserMemory]:
-        """Get users active within the last N hours."""
-        async with self._lock:
-            current_time = asyncio.get_event_loop().time()
-            cutoff_time = current_time - (hours * 3600)
-
-            active_users = []
-            for memory in self._metadata.values():
-                if memory.last_seen and memory.last_seen >= cutoff_time:
-                    active_users.append(memory)
-
-            return active_users
-
-    async def cleanup_old_memories(self, days: int = 30) -> int:
-        """Remove metadata for users inactive for more than N days."""
-        async with self._lock:
-            current_time = asyncio.get_event_loop().time()
-            cutoff_time = current_time - (days * 24 * 3600)
-
-            users_to_remove = []
-            for user_id, memory in self._metadata.items():
-                if memory.last_seen and memory.last_seen < cutoff_time:
-                    users_to_remove.append(user_id)
-
-            for user_id in users_to_remove:
-                del self._metadata[user_id]
-
-            if users_to_remove:
-                self._dirty = True
-                logger.info(f"Cleaned up {len(users_to_remove)} inactive user metadata")
-
-            return len(users_to_remove)
-
-    async def get_statistics(self) -> Dict[str, Any]:
+    async def get_statistics(self) -> Dict[str, any]:
         """Get memory statistics."""
-        async with self._lock:
-            total_users = len(self._metadata)
-            total_messages = sum(
-                memory.total_messages for memory in self._metadata.values()
-            )
+        total_users = len(self._dm_logs)
+        total_messages = sum(len(lines) for lines in self._dm_logs.values())
+        total_messages += len(self._channel_log)
 
-            # Calculate active users without calling methods that also acquire the lock
-            # This avoids deadlock
-            current_time = asyncio.get_event_loop().time()
-            cutoff_24h = current_time - (24 * 3600)
-            cutoff_7d = current_time - (7 * 24 * 3600)
-
-            active_users_24h = sum(
-                1 for memory in self._metadata.values()
-                if memory.last_seen and memory.last_seen >= cutoff_24h
-            )
-            active_users_7d = sum(
-                1 for memory in self._metadata.values()
-                if memory.last_seen and memory.last_seen >= cutoff_7d
-            )
-
-            return {
-                "total_users": total_users,
-                "total_messages": total_messages,
-                "active_users_24h": active_users_24h,
-                "active_users_7d": active_users_7d,
-                "average_messages_per_user": total_messages / max(total_users, 1),
-            }
+        return {
+            "total_users": total_users,
+            "total_messages": total_messages,
+            "dm_conversations": total_users,
+            "channel_messages": len(self._channel_log),
+        }

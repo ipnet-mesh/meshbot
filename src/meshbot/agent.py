@@ -95,11 +95,10 @@ class MeshBotAgent:
             connection_type, **self.meshcore_kwargs
         )
 
-        # Initialize memory manager with simple message history
+        # Initialize memory manager with file-based chat logs
         self.memory = MemoryManager(
-            storage_path=self.memory_path or Path("memory_metadata.json"),
-            max_dm_history=100,  # Keep last 100 messages per DM
-            max_channel_history=1000,  # Keep last 1000 messages in channel
+            storage_path=self.memory_path or Path("logs"),  # Not used, kept for compatibility
+            max_lines=1000,  # Keep last 1000 lines per log file
         )
         await self.memory.load()
 
@@ -151,12 +150,11 @@ class MeshBotAgent:
             """Get information about a user."""
             try:
                 memory = await ctx.deps.memory.get_user_memory(user_id)
-                stats = await ctx.deps.memory.get_statistics()
 
-                info = f"User: {memory.user_name or user_id}\n"
-                info += f"Total messages: {memory.total_messages}\n"
-                info += f"First seen: {memory.first_seen}\n"
-                info += f"Last seen: {memory.last_seen}\n"
+                info = f"User: {memory.get('user_name') or user_id}\n"
+                info += f"Total messages: {memory.get('total_messages', 0)}\n"
+                info += f"First seen: {memory.get('first_seen', 'Never')}\n"
+                info += f"Last seen: {memory.get('last_seen', 'Never')}\n"
 
                 return info
             except Exception as e:
@@ -206,8 +204,8 @@ class MeshBotAgent:
 
                 response = "Recent conversation:\n"
                 for msg in history:
-                    role = "User" if msg.role == "user" else "Assistant"
-                    response += f"{role}: {msg.content}\n"
+                    role = "User" if msg["role"] == "user" else "Assistant"
+                    response += f"{role}: {msg['content']}\n"
 
                 return response.strip()
             except Exception as e:
