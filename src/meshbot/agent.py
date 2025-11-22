@@ -100,7 +100,8 @@ class MeshBotAgent:
 
         # Initialize memory manager with file-based chat logs
         self.memory = MemoryManager(
-            storage_path=self.memory_path or Path("logs"),  # Not used, kept for compatibility
+            storage_path=self.memory_path
+            or Path("logs"),  # Not used, kept for compatibility
             max_lines=1000,  # Keep last 1000 lines per log file
         )
         await self.memory.load()
@@ -219,6 +220,293 @@ class MeshBotAgent:
                 logger.error(f"Error getting conversation history: {e}")
                 return "Error retrieving conversation history."
 
+        # Utility Tools
+        @self.agent.tool
+        async def calculate(
+            ctx: RunContext[MeshBotDependencies], expression: str
+        ) -> str:
+            """Evaluate a mathematical expression safely.
+
+            Args:
+                expression: Math expression to evaluate (e.g., "2 + 2", "sqrt(16)", "pi * 2")
+
+            Returns:
+                Result of the calculation or error message
+            """
+            try:
+                import math
+                import re
+
+                # Allow only safe characters (numbers, operators, math functions)
+                if not re.match(r"^[0-9+\-*/()., a-z]+$", expression.lower()):
+                    return (
+                        "Invalid expression. Use only numbers and basic math operators."
+                    )
+
+                # Create safe namespace with math functions
+                safe_dict = {
+                    "abs": abs,
+                    "round": round,
+                    "min": min,
+                    "max": max,
+                    "sum": sum,
+                    "pow": pow,
+                    "sqrt": math.sqrt,
+                    "pi": math.pi,
+                    "e": math.e,
+                    "sin": math.sin,
+                    "cos": math.cos,
+                    "tan": math.tan,
+                    "log": math.log,
+                    "log10": math.log10,
+                    "ceil": math.ceil,
+                    "floor": math.floor,
+                }
+
+                result = eval(expression, {"__builtins__": {}}, safe_dict)
+                return f"{expression} = {result}"
+            except ZeroDivisionError:
+                return "Error: Division by zero"
+            except Exception as e:
+                logger.error(f"Calculation error: {e}")
+                return f"Error calculating: {str(e)[:50]}"
+
+        @self.agent.tool
+        async def get_current_time(
+            ctx: RunContext[MeshBotDependencies], format: str = "human"
+        ) -> str:
+            """Get current date and time.
+
+            Args:
+                format: Output format - "human" (readable), "unix" (timestamp), or "iso" (ISO 8601)
+
+            Returns:
+                Current time in requested format
+            """
+            try:
+                from datetime import datetime
+
+                now = datetime.now()
+
+                if format == "unix":
+                    return f"Unix timestamp: {int(now.timestamp())}"
+                elif format == "iso":
+                    return f"ISO 8601: {now.isoformat()}"
+                else:  # human readable
+                    return now.strftime("%Y-%m-%d %H:%M:%S")
+            except Exception as e:
+                logger.error(f"Error getting time: {e}")
+                return "Error retrieving current time"
+
+        @self.agent.tool
+        async def search_history(
+            ctx: RunContext[MeshBotDependencies],
+            user_id: str,
+            keyword: str,
+            limit: int = 5,
+        ) -> str:
+            """Search conversation history for messages containing a keyword.
+
+            Args:
+                user_id: User/channel ID to search
+                keyword: Keyword to search for (case-insensitive)
+                limit: Maximum number of results to return
+
+            Returns:
+                Matching messages or no results message
+            """
+            try:
+                # Get full history
+                history = await ctx.deps.memory.get_conversation_history(
+                    user_id, limit=100
+                )
+
+                if not history:
+                    return f"No conversation history with {user_id}"
+
+                # Search for keyword (case-insensitive)
+                keyword_lower = keyword.lower()
+                matches = [
+                    msg for msg in history if keyword_lower in msg["content"].lower()
+                ][:limit]
+
+                if not matches:
+                    return f"No messages found containing '{keyword}'"
+
+                response = f"Found {len(matches)} message(s) with '{keyword}':\n"
+                for msg in matches:
+                    role = "User" if msg["role"] == "user" else "Assistant"
+                    content_preview = (
+                        msg["content"][:60] + "..."
+                        if len(msg["content"]) > 60
+                        else msg["content"]
+                    )
+                    response += f"{role}: {content_preview}\n"
+
+                return response.strip()
+            except Exception as e:
+                logger.error(f"Error searching history: {e}")
+                return "Error searching conversation history"
+
+        @self.agent.tool
+        async def get_bot_status(ctx: RunContext[MeshBotDependencies]) -> str:
+            """Get current bot status and statistics.
+
+            Returns:
+                Bot status information including uptime, memory stats, and connection status
+            """
+            try:
+                # Get memory statistics
+                memory_stats = await ctx.deps.memory.get_statistics()
+
+                # Get connection status
+                is_connected = ctx.deps.meshcore.is_connected()
+
+                # Get contacts count
+                contacts = await ctx.deps.meshcore.get_contacts()
+                online_count = sum(1 for c in contacts if c.is_online)
+
+                status = (
+                    f"Bot Status:\n"
+                    f"Connected: {'Yes' if is_connected else 'No'}\n"
+                    f"Contacts: {online_count}/{len(contacts)} online\n"
+                    f"Total messages: {memory_stats.get('total_messages', 0)}\n"
+                    f"Users: {memory_stats.get('total_users', 0)}"
+                )
+
+                return status
+            except Exception as e:
+                logger.error(f"Error getting bot status: {e}")
+                return "Error retrieving bot status"
+
+        # Fun/Interactive Tools
+        @self.agent.tool
+        async def roll_dice(
+            ctx: RunContext[MeshBotDependencies], count: int = 1, sides: int = 6
+        ) -> str:
+            """Roll dice and return the results.
+
+            Args:
+                count: Number of dice to roll (1-10)
+                sides: Number of sides per die (2-100)
+
+            Returns:
+                Dice roll results
+            """
+            try:
+                import random
+
+                # Validate inputs
+                if not 1 <= count <= 10:
+                    return "Please roll between 1 and 10 dice"
+                if not 2 <= sides <= 100:
+                    return "Dice must have between 2 and 100 sides"
+
+                rolls = [random.randint(1, sides) for _ in range(count)]
+                total = sum(rolls)
+
+                if count == 1:
+                    return f"Rolled 1d{sides}: {rolls[0]}"
+                else:
+                    rolls_str = ", ".join(map(str, rolls))
+                    return f"Rolled {count}d{sides}: [{rolls_str}] = {total}"
+            except Exception as e:
+                logger.error(f"Error rolling dice: {e}")
+                return "Error rolling dice"
+
+        @self.agent.tool
+        async def flip_coin(ctx: RunContext[MeshBotDependencies]) -> str:
+            """Flip a coin and return the result.
+
+            Returns:
+                Either "Heads" or "Tails"
+            """
+            try:
+                import random
+
+                result = random.choice(["Heads", "Tails"])
+                return f"Coin flip: {result}"
+            except Exception as e:
+                logger.error(f"Error flipping coin: {e}")
+                return "Error flipping coin"
+
+        @self.agent.tool
+        async def random_number(
+            ctx: RunContext[MeshBotDependencies],
+            min_value: int = 1,
+            max_value: int = 100,
+        ) -> str:
+            """Generate a random number within a range.
+
+            Args:
+                min_value: Minimum value (inclusive)
+                max_value: Maximum value (inclusive)
+
+            Returns:
+                Random number in the specified range
+            """
+            try:
+                import random
+
+                if min_value >= max_value:
+                    return "Min value must be less than max value"
+
+                if max_value - min_value > 1000000:
+                    return "Range too large (max 1 million)"
+
+                result = random.randint(min_value, max_value)
+                return f"Random number ({min_value}-{max_value}): {result}"
+            except Exception as e:
+                logger.error(f"Error generating random number: {e}")
+                return "Error generating random number"
+
+        @self.agent.tool
+        async def magic_8ball(
+            ctx: RunContext[MeshBotDependencies], question: str
+        ) -> str:
+            """Ask the magic 8-ball a yes/no question.
+
+            Args:
+                question: Your yes/no question
+
+            Returns:
+                Magic 8-ball response
+            """
+            try:
+                import random
+
+                responses = [
+                    # Positive
+                    "It is certain",
+                    "It is decidedly so",
+                    "Without a doubt",
+                    "Yes definitely",
+                    "You may rely on it",
+                    "As I see it, yes",
+                    "Most likely",
+                    "Outlook good",
+                    "Yes",
+                    "Signs point to yes",
+                    # Non-committal
+                    "Reply hazy, try again",
+                    "Ask again later",
+                    "Better not tell you now",
+                    "Cannot predict now",
+                    "Concentrate and ask again",
+                    # Negative
+                    "Don't count on it",
+                    "My reply is no",
+                    "My sources say no",
+                    "Outlook not so good",
+                    "Very doubtful",
+                ]
+
+                response = random.choice(responses)
+                return f"🎱 {response}"
+            except Exception as e:
+                logger.error(f"Error with magic 8-ball: {e}")
+                return "The magic 8-ball is cloudy"
+
     async def start(self) -> None:
         """Start the agent."""
         if self._running:
@@ -237,7 +525,9 @@ class MeshBotAgent:
         try:
             self._own_public_key = await self.meshcore.get_own_public_key()
             if self._own_public_key:
-                logger.info(f"Bot will filter out messages from self: {self._own_public_key[:16]}...")
+                logger.info(
+                    f"Bot will filter out messages from self: {self._own_public_key[:16]}..."
+                )
         except Exception as e:
             logger.warning(f"Could not retrieve own public key: {e}")
 
@@ -343,9 +633,11 @@ class MeshBotAgent:
         # This prevents infinite loops where the bot responds to its own messages
         if self._own_public_key and message.sender:
             # Check if sender matches our own public key (could be full key or prefix)
-            if (message.sender == self._own_public_key or
-                message.sender.startswith(self._own_public_key[:16]) or
-                self._own_public_key.startswith(message.sender)):
+            if (
+                message.sender == self._own_public_key
+                or message.sender.startswith(self._own_public_key[:16])
+                or self._own_public_key.startswith(message.sender)
+            ):
                 logger.debug(f"Ignoring message from self: {message.sender}")
                 return False
 
@@ -370,7 +662,9 @@ class MeshBotAgent:
         # Default: don't respond to broadcast messages or unknown types
         return False
 
-    async def _handle_message(self, message: MeshCoreMessage, raise_errors: bool = False) -> bool:
+    async def _handle_message(
+        self, message: MeshCoreMessage, raise_errors: bool = False
+    ) -> bool:
         """
         Handle incoming message.
 
@@ -416,7 +710,9 @@ class MeshBotAgent:
             deps = MeshBotDependencies(meshcore=self.meshcore, memory=self.memory)
 
             # Build the prompt with conversation history
-            if context and len(context) > 1:  # Only include history if there's more than just current message
+            if (
+                context and len(context) > 1
+            ):  # Only include history if there's more than just current message
                 # Include previous context in the prompt (excluding the message we just added)
                 prompt = f"Conversation history:\n"
                 for msg in context[:-1][-10:]:  # Last 10 messages, excluding current
@@ -443,7 +739,9 @@ class MeshBotAgent:
                 # Split message if it's too long
                 message_chunks = self._split_message(response)
 
-                logger.info(f"Sending {len(message_chunks)} message(s) to {destination}")
+                logger.info(
+                    f"Sending {len(message_chunks)} message(s) to {destination}"
+                )
 
                 # Send all chunks
                 for i, chunk in enumerate(message_chunks):
@@ -455,7 +753,9 @@ class MeshBotAgent:
 
                 # Store assistant response in memory (original full response)
                 # For channels, use channel as user_id; for DMs, use sender
-                user_id = destination if message.message_type == "channel" else message.sender
+                user_id = (
+                    destination if message.message_type == "channel" else message.sender
+                )
                 await self.memory.add_message(
                     user_id=user_id,
                     role="assistant",
@@ -478,8 +778,12 @@ class MeshBotAgent:
 
             # Check for common API errors and provide helpful messages
             if "status_code: 403" in error_msg or "Access denied" in error_msg:
-                logger.error("API Access Denied - Check your API key and account status")
-                logger.error("Make sure LLM_API_KEY is valid and has sufficient credits")
+                logger.error(
+                    "API Access Denied - Check your API key and account status"
+                )
+                logger.error(
+                    "Make sure LLM_API_KEY is valid and has sufficient credits"
+                )
             elif "status_code: 401" in error_msg or "Unauthorized" in error_msg:
                 logger.error("API Unauthorized - Check your LLM_API_KEY")
             elif "status_code: 429" in error_msg or "rate_limit" in error_msg:
