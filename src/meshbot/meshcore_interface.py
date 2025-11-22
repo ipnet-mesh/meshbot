@@ -342,8 +342,10 @@ class RealMeshCoreInterface(MeshCoreInterface):
             return False
 
         try:
+            import time
             logger.info("Syncing companion node clock to system time...")
-            result = await self._meshcore.commands.sync_time()
+            current_time = int(time.time())
+            result = await self._meshcore.commands.set_time(current_time)
             logger.info("Clock sync completed")
             return result is not None
         except Exception as e:
@@ -357,7 +359,7 @@ class RealMeshCoreInterface(MeshCoreInterface):
 
         try:
             logger.info("Sending local advertisement...")
-            result = await self._meshcore.commands.send_local_advert()
+            result = await self._meshcore.commands.send_advert(flood=False)
             logger.info("Local advertisement sent")
             return result is not None
         except Exception as e:
