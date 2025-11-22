@@ -247,7 +247,18 @@ def test(
     # Create and run test
     async def run_test():
         """Run the test message."""
+        import os
         from .meshcore_interface import ConnectionType, MeshCoreMessage
+
+        # Check if API key is configured
+        api_key = os.getenv("OPENAI_API_KEY")
+        if not api_key:
+            console.print("\n[red]ERROR: OPENAI_API_KEY environment variable not set![/red]")
+            console.print("[yellow]Please set your OpenAI API key:[/yellow]")
+            console.print("  export OPENAI_API_KEY='your-api-key-here'")
+            console.print("\n[yellow]Or create a .env file with:[/yellow]")
+            console.print("  OPENAI_API_KEY=your-api-key-here")
+            sys.exit(1)
 
         # Create agent
         agent = MeshBotAgent(
@@ -284,21 +295,46 @@ def test(
                 message_type="direct",
             )
 
-            # Process message through agent's handler
-            await agent._handle_message(simulated_message)
+            # Process message through agent's handler with timeout
+            console.print("[cyan]Processing message (this may take a few seconds)...[/cyan]")
+            success = False
+            try:
+                success = await asyncio.wait_for(
+                    agent._handle_message(simulated_message, raise_errors=True),
+                    timeout=30.0  # 30 second timeout
+                )
+            except asyncio.TimeoutError:
+                console.print("\n[red]ERROR: Message processing timed out after 30 seconds[/red]")
+                console.print("[yellow]This may indicate an API connectivity issue[/yellow]")
+            except Exception as e:
+                # Error already logged by agent, just note it failed
+                pass
 
-            # Give it a moment to complete
-            await asyncio.sleep(1)
+            # Give it a moment for any async operations to complete
+            await asyncio.sleep(0.5)
 
-            console.print("\n[green]✓ Test completed![/green]")
+            if not success:
+                console.print("\n[red]✗ Test failed - see errors above[/red]")
+                console.print("\n[yellow]Common issues:[/yellow]")
+                console.print("  • Invalid or expired API key")
+                console.print("  • No credits on OpenAI account")
+                console.print("  • Network connectivity issues")
+                console.print("  • Model not accessible with your API key")
+                return False
+            else:
+                console.print("\n[green]✓ Test completed successfully![/green]")
+                return True
 
         finally:
             await agent.stop()
 
     try:
-        asyncio.run(run_test())
+        success = asyncio.run(run_test())
+        if not success:
+            sys.exit(1)
     except KeyboardInterrupt:
         logger.info("Interrupted by user")
+        sys.exit(130)  # Standard exit code for Ctrl+C
     except Exception as e:
         logger.error(f"Error running test: {e}")
         sys.exit(1)

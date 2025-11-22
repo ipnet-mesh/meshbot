@@ -269,14 +269,23 @@ class MeshBotAgent:
         # Default: don't respond to broadcast messages or unknown types
         return False
 
-    async def _handle_message(self, message: MeshCoreMessage) -> None:
-        """Handle incoming message."""
+    async def _handle_message(self, message: MeshCoreMessage, raise_errors: bool = False) -> bool:
+        """
+        Handle incoming message.
+
+        Args:
+            message: The incoming message to handle
+            raise_errors: If True, re-raise exceptions after logging (useful for testing)
+
+        Returns:
+            True if message was handled successfully, False otherwise
+        """
         try:
             logger.info(f"Received message from {message.sender}: {message.content}")
 
             # Check if we should respond to this message
             if not self._should_respond_to_message(message):
-                return
+                return True  # Not an error, just filtered out
 
             # Store message in memory
             await self.memory.add_message(message, is_from_user=True)
@@ -290,6 +299,7 @@ class MeshBotAgent:
             # Send response
             response = result.output.response
             if response:
+                logger.info(f"Sending response to {message.sender}: {response}")
                 await self.meshcore.send_message(message.sender, response)
 
                 # Store assistant response in memory
@@ -308,16 +318,36 @@ class MeshBotAgent:
                     result.output.action, result.output.action_data, message.sender
                 )
 
+            return True
+
         except Exception as e:
-            logger.error(f"Error handling message: {e}")
-            # Send error response
-            try:
-                await self.meshcore.send_message(
-                    message.sender,
-                    "Sorry, I encountered an error processing your message.",
-                )
-            except:
-                pass
+            error_msg = str(e)
+            logger.error(f"Error handling message: {error_msg}")
+
+            # Check for common API errors and provide helpful messages
+            if "status_code: 403" in error_msg or "Access denied" in error_msg:
+                logger.error("API Access Denied - Check your API key and account status")
+                logger.error("Make sure OPENAI_API_KEY is valid and has credits")
+            elif "status_code: 401" in error_msg or "Unauthorized" in error_msg:
+                logger.error("API Unauthorized - Check your API key")
+            elif "status_code: 429" in error_msg or "rate_limit" in error_msg:
+                logger.error("API Rate Limit - Too many requests")
+
+            # Send error response (in production mode)
+            if not raise_errors:
+                try:
+                    await self.meshcore.send_message(
+                        message.sender,
+                        "Sorry, I encountered an error processing your message.",
+                    )
+                except:
+                    pass
+
+            # Re-raise in test mode
+            if raise_errors:
+                raise
+
+            return False
 
     async def _handle_action(
         self, action: str, action_data: Optional[Dict[str, Any]], sender: str
