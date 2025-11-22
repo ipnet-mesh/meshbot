@@ -203,10 +203,10 @@ async def run_agent(agent: MeshBotAgent) -> None:
 @click.option("--meshcore-port", help="Serial port for MeshCore connection")
 @click.option("--meshcore-host", help="TCP host for MeshCore connection")
 @click.option(
-    "--log-level",
-    type=click.Choice(["DEBUG", "INFO", "WARNING", "ERROR"]),
-    default="INFO",
-    help="Logging level",
+    "-v",
+    "--verbose",
+    count=True,
+    help="Increase verbosity (-v for INFO, -vv for DEBUG)",
 )
 def test(
     from_id: str,
@@ -215,13 +215,21 @@ def test(
     meshcore_type: str,
     meshcore_port: Optional[str],
     meshcore_host: Optional[str],
-    log_level: str,
+    verbose: int,
 ) -> None:
     """Send a test message simulating a message from FROM_ID.
 
     FROM_ID: The sender ID to simulate (e.g., 'node1', 'test_user')
     MESSAGE: The message content to send
     """
+
+    # Determine log level from verbosity
+    if verbose >= 2:
+        level = "DEBUG"
+    elif verbose == 1:
+        level = "INFO"
+    else:
+        level = "WARNING"
 
     # Load configuration
     try:
@@ -233,14 +241,14 @@ def test(
             app_config.meshcore.port = meshcore_port
         if meshcore_host:
             app_config.meshcore.host = meshcore_host
-        app_config.logging.level = log_level
+        app_config.logging.level = level
 
     except Exception as e:
         logging.error(f"Error loading configuration: {e}")
         sys.exit(1)
 
     # Setup logging
-    setup_logging(log_level)
+    setup_logging(level)
     logger = logging.getLogger(__name__)
 
     # Load custom prompt if provided
