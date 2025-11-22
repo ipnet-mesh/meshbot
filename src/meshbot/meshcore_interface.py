@@ -289,12 +289,31 @@ class RealMeshCoreInterface(MeshCoreInterface):
                 self._connected = False
 
     async def send_message(self, destination: str, message: str) -> bool:
-        """Send message via real MeshCore."""
+        """Send message via real MeshCore.
+
+        Args:
+            destination: Either a channel ID (e.g., "0", "1") or a public key hex string
+            message: The message to send
+
+        Returns:
+            True if message was sent successfully, False otherwise
+        """
         if not self._connected or not self._meshcore:
             return False
 
         try:
-            result = await self._meshcore.commands.send_msg(destination, message)
+            # Detect if destination is a channel (numeric string with 1-2 digits)
+            # Channel IDs are typically 0-255
+            if destination.isdigit() and len(destination) <= 3 and int(destination) < 256:
+                # Send to channel
+                channel_id = int(destination)
+                logger.debug(f"Sending to channel {channel_id}")
+                result = await self._meshcore.commands.send_chan_msg(channel_id, message)
+            else:
+                # Send direct message to contact (public key)
+                logger.debug(f"Sending direct message to {destination[:16]}...")
+                result = await self._meshcore.commands.send_msg(destination, message)
+
             return result is not None
         except Exception as e:
             logger.error(f"Failed to send message: {e}")
