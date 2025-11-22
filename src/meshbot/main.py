@@ -194,9 +194,15 @@ async def interactive_mode(agent: MeshBotAgent) -> None:
     console.print("  • 'help' - Show this help")
     console.print()
 
+    loop = asyncio.get_event_loop()
+
     while True:
         try:
-            command = console.input("[bold cyan]meshbot> [/bold cyan]").strip()
+            # Use run_in_executor to make input non-blocking
+            command = await loop.run_in_executor(
+                None, lambda: input("\033[1m\033[36mmeshbot> \033[0m")
+            )
+            command = command.strip()
 
             if not command:
                 continue
