@@ -67,6 +67,11 @@ def cli() -> None:
     "--memory-path", type=click.Path(path_type=Path), help="Memory storage file path"
 )
 @click.option(
+    "--custom-prompt",
+    type=click.Path(exists=True, path_type=Path),
+    help="Path to custom prompt file",
+)
+@click.option(
     "-v", "--verbose", count=True, help="Increase verbosity (-v for INFO, -vv for DEBUG)"
 )
 @click.option(
@@ -79,6 +84,7 @@ def run(
     meshcore_port: Optional[str],
     meshcore_host: Optional[str],
     memory_path: Optional[Path],
+    custom_prompt: Optional[Path],
     verbose: int,
     log_file: Optional[Path],
 ) -> None:
@@ -111,6 +117,8 @@ def run(
             app_config.meshcore.host = meshcore_host
         if memory_path:
             app_config.memory.storage_path = memory_path
+        if custom_prompt:
+            app_config.ai.custom_prompt_file = custom_prompt
 
     except Exception as e:
         logger.error(f"Error loading configuration: {e}")
@@ -204,6 +212,11 @@ async def run_agent(agent: MeshBotAgent) -> None:
 @click.option("--meshcore-port", help="Serial port for MeshCore connection")
 @click.option("--meshcore-host", help="TCP host for MeshCore connection")
 @click.option(
+    "--custom-prompt",
+    type=click.Path(exists=True, path_type=Path),
+    help="Path to custom prompt file",
+)
+@click.option(
     "-v",
     "--verbose",
     count=True,
@@ -216,6 +229,7 @@ def test(
     meshcore_type: str,
     meshcore_port: Optional[str],
     meshcore_host: Optional[str],
+    custom_prompt: Optional[Path],
     verbose: int,
 ) -> None:
     """Send a test message simulating a message from FROM_ID.
@@ -242,6 +256,8 @@ def test(
             app_config.meshcore.port = meshcore_port
         if meshcore_host:
             app_config.meshcore.host = meshcore_host
+        if custom_prompt:
+            app_config.ai.custom_prompt_file = custom_prompt
         app_config.logging.level = level
 
     except Exception as e:
