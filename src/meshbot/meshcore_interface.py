@@ -305,11 +305,16 @@ class RealMeshCoreInterface(MeshCoreInterface):
 
     def add_message_handler(self, handler: Callable[[MeshCoreMessage], Any]) -> None:
         """Add handler for incoming messages."""
+        logger.info(f"Registering message handler: {handler}")
         self._message_handlers.append(handler)
+        logger.info(f"Total message handlers: {len(self._message_handlers)}")
 
     async def _on_message_received(self, event) -> None:
         """Handle incoming message events."""
         try:
+            logger.debug(f"_on_message_received called! Event: {event}")
+            logger.debug(f"Number of registered handlers: {len(self._message_handlers)}")
+
             payload = event.payload
 
             # Extract message fields from MeshCore event payload
@@ -332,14 +337,17 @@ class RealMeshCoreInterface(MeshCoreInterface):
             )
 
             # Call all registered handlers
-            for handler in self._message_handlers:
+            logger.debug(f"Calling {len(self._message_handlers)} message handlers")
+            for i, handler in enumerate(self._message_handlers):
                 try:
+                    logger.debug(f"Calling handler {i+1}/{len(self._message_handlers)}: {handler}")
                     if asyncio.iscoroutinefunction(handler):
                         await handler(message)
                     else:
                         handler(message)
+                    logger.debug(f"Handler {i+1} completed successfully")
                 except Exception as e:
-                    logger.error(f"Error in message handler: {e}")
+                    logger.error(f"Error in message handler {i+1}: {e}", exc_info=True)
 
         except Exception as e:
             logger.error(f"Error processing message event: {e}")
