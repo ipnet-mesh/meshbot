@@ -310,24 +310,25 @@ class RealMeshCoreInterface(MeshCoreInterface):
     async def _on_message_received(self, event) -> None:
         """Handle incoming message events."""
         try:
-            # Debug: Log the event structure
-            logger.debug(f"Received event: {event}")
-            logger.debug(f"Event type: {type(event)}")
-            logger.debug(f"Event attributes: {dir(event)}")
-            logger.debug(f"Event payload: {event.payload if hasattr(event, 'payload') else 'No payload attr'}")
+            payload = event.payload
 
-            # Try to extract message data from event payload
-            if hasattr(event, 'payload'):
-                payload = event.payload
-                logger.debug(f"Payload type: {type(payload)}")
-                logger.debug(f"Payload content: {payload}")
+            # Extract message fields from MeshCore event payload
+            sender = payload.get("pubkey_prefix", "")
+            content = payload.get("text", "")
+            sender_timestamp = payload.get("sender_timestamp", 0)
+            msg_type = payload.get("type", "PRIV")
+
+            # Map MeshCore message types to our types
+            message_type = "direct" if msg_type == "PRIV" else "channel"
+
+            logger.debug(f"Parsed message - sender: {sender}, content: {content}, type: {message_type}")
 
             message = MeshCoreMessage(
-                sender=event.payload.get("sender", ""),
-                sender_name=event.payload.get("sender_name"),
-                content=event.payload.get("content", ""),
-                timestamp=asyncio.get_event_loop().time(),
-                message_type=event.payload.get("type", "direct"),
+                sender=sender,
+                sender_name=None,  # MeshCore doesn't provide name in message events
+                content=content,
+                timestamp=float(sender_timestamp) if sender_timestamp else asyncio.get_event_loop().time(),
+                message_type=message_type,
             )
 
             # Call all registered handlers
