@@ -253,28 +253,12 @@ class RealMeshCoreInterface(MeshCoreInterface):
             logger.info("Starting manual message polling task...")
             asyncio.create_task(self._poll_messages())
 
-            # Debug: Subscribe to multiple event types to see what's being received
-            def debug_event_handler(event):
-                logger.info(f"DEBUG: Received event type: {event.type}, payload: {event.payload}")
-
-            logger.info("Subscribing to debug events...")
-            for event_type in [EventType.CONTACT_MSG_RECV, EventType.CHANNEL_MSG_RECV, EventType.MESSAGES_WAITING, EventType.NO_MORE_MSGS, EventType.RAW_DATA]:
-                try:
-                    self._meshcore.subscribe(event_type, debug_event_handler)
-                    logger.info(f"Subscribed to {event_type}")
-                except Exception as e:
-                    logger.warning(f"Failed to subscribe to {event_type}: {e}")
-
             # Set up message event subscription
-            logger.info(f"Subscribing to {EventType.CONTACT_MSG_RECV} events with handler: {self._on_message_received}")
+            logger.info(f"Subscribing to {EventType.CONTACT_MSG_RECV} events")
             self._meshcore.subscribe(
                 EventType.CONTACT_MSG_RECV, self._on_message_received
             )
             logger.info("Event subscription completed")
-
-            # Verify subscription
-            logger.debug(f"MeshCore dispatcher: {self._meshcore.dispatcher}")
-            logger.debug(f"Dispatcher subscribers: {getattr(self._meshcore.dispatcher, 'subscribers', 'No subscribers attr')}")
 
             self._connected = True
             logger.info(
@@ -302,13 +286,14 @@ class RealMeshCoreInterface(MeshCoreInterface):
         logger.info("Message polling task started")
         while self._connected and self._meshcore:
             try:
-                logger.debug("Manually polling for messages...")
                 result = await self._meshcore.commands.get_msg()
-                logger.debug(f"Poll result: {result.type}, payload: {result.payload}")
-                await asyncio.sleep(5)  # Poll every 5 seconds
+                # Only log if we got a message (not errors or no_more_msgs)
+                if result.type not in [EventType.ERROR, EventType.NO_MORE_MSGS]:
+                    logger.info(f"Poll found message: {result.type}, payload: {result.payload}")
+                await asyncio.sleep(3)  # Poll every 3 seconds
             except Exception as e:
                 logger.error(f"Error in message polling: {e}")
-                await asyncio.sleep(5)
+                await asyncio.sleep(3)
 
     async def send_message(self, destination: str, message: str) -> bool:
         """Send message via real MeshCore."""
