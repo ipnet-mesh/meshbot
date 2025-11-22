@@ -232,6 +232,18 @@ class MeshBotAgent:
         # Connect to MeshCore
         await self.meshcore.connect()
 
+        # Sync companion node clock
+        try:
+            await self.meshcore.sync_time()
+        except Exception as e:
+            logger.warning(f"Clock sync failed: {e}")
+
+        # Send local advertisement to announce presence
+        try:
+            await self.meshcore.send_local_advert()
+        except Exception as e:
+            logger.warning(f"Local advert failed: {e}")
+
         self._running = True
         logger.info("MeshBot agent started successfully")
 

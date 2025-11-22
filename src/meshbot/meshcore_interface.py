@@ -74,6 +74,16 @@ class MeshCoreInterface(ABC):
         """Check if connected to MeshCore device."""
         pass
 
+    @abstractmethod
+    async def sync_time(self) -> bool:
+        """Sync companion node's clock to system time."""
+        pass
+
+    @abstractmethod
+    async def send_local_advert(self) -> bool:
+        """Send a local advertisement to announce presence."""
+        pass
+
 
 class MockMeshCoreInterface(MeshCoreInterface):
     """Mock implementation for testing and development."""
@@ -147,6 +157,24 @@ class MockMeshCoreInterface(MeshCoreInterface):
 
         # Return True if node exists in contacts
         return destination in self._contacts
+
+    async def sync_time(self) -> bool:
+        """Mock sync companion node clock."""
+        if not self._connected:
+            return False
+
+        logger.info("Mock: Syncing companion node clock to system time")
+        await asyncio.sleep(0.1)
+        return True
+
+    async def send_local_advert(self) -> bool:
+        """Mock send local advertisement."""
+        if not self._connected:
+            return False
+
+        logger.info("Mock: Sending local advertisement")
+        await asyncio.sleep(0.1)
+        return True
 
     def is_connected(self) -> bool:
         """Check if mock connected."""
@@ -307,6 +335,34 @@ class RealMeshCoreInterface(MeshCoreInterface):
     def is_connected(self) -> bool:
         """Check if real MeshCore is connected."""
         return bool(self._connected and self._meshcore and self._meshcore.is_connected)
+
+    async def sync_time(self) -> bool:
+        """Sync companion node's clock to system time."""
+        if not self._connected or not self._meshcore:
+            return False
+
+        try:
+            logger.info("Syncing companion node clock to system time...")
+            result = await self._meshcore.commands.sync_time()
+            logger.info("Clock sync completed")
+            return result is not None
+        except Exception as e:
+            logger.error(f"Failed to sync time: {e}")
+            return False
+
+    async def send_local_advert(self) -> bool:
+        """Send a local advertisement to announce presence."""
+        if not self._connected or not self._meshcore:
+            return False
+
+        try:
+            logger.info("Sending local advertisement...")
+            result = await self._meshcore.commands.send_local_advert()
+            logger.info("Local advertisement sent")
+            return result is not None
+        except Exception as e:
+            logger.error(f"Failed to send local advert: {e}")
+            return False
 
     def add_message_handler(self, handler: Callable[[MeshCoreMessage], Any]) -> None:
         """Add handler for incoming messages."""
