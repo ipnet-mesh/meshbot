@@ -345,7 +345,6 @@ class MeshBotAgent:
             if "status_code: 403" in error_msg or "Access denied" in error_msg:
                 logger.error("API Access Denied - Check your API key and account status")
                 logger.error("Make sure LLM_API_KEY is valid and has sufficient credits")
-                logger.error("(Legacy OPENAI_API_KEY is also supported)")
             elif "status_code: 401" in error_msg or "Unauthorized" in error_msg:
                 logger.error("API Unauthorized - Check your LLM_API_KEY")
             elif "status_code: 429" in error_msg or "rate_limit" in error_msg:

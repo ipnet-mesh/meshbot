@@ -43,10 +43,10 @@ class AIConfig:
     """Configuration for AI model and LLM API."""
 
     model: str = field(
-        default_factory=lambda: os.getenv("LLM_MODEL") or os.getenv("AI_MODEL", "openai:gpt-4o-mini")
+        default_factory=lambda: os.getenv("LLM_MODEL", "openai:gpt-4o-mini")
     )
     api_key: Optional[str] = field(
-        default_factory=lambda: os.getenv("LLM_API_KEY") or os.getenv("OPENAI_API_KEY")
+        default_factory=lambda: os.getenv("LLM_API_KEY")
     )
     base_url: Optional[str] = field(
         default_factory=lambda: os.getenv("LLM_BASE_URL")
@@ -154,7 +154,7 @@ class MeshBotConfig:
         # Validate AI config - check if API key is needed
         # Most models require an API key unless using local Ollama without auth
         if self.ai.model.startswith("openai") and not self.ai.api_key:
-            if not (os.getenv("LLM_API_KEY") or os.getenv("OPENAI_API_KEY")):
+            if not os.getenv("LLM_API_KEY"):
                 raise ValueError(
                     "LLM API key required. Set LLM_API_KEY environment variable"
                 )
