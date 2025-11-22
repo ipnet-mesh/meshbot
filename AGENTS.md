@@ -127,9 +127,11 @@ pytest tests/test_basic.py -v
 
 4. **Configuration** (`src/meshbot/config.py`)
    - Environment variable support
-   - JSON configuration files
+   - Command-line argument overrides
+   - Configuration priority: CLI args > env vars > defaults
    - Validation
    - OpenAI-compatible endpoint configuration
+   - No config files - follows 12-factor app principles
 
 ### Dependencies
 
@@ -207,17 +209,20 @@ pytest tests/ -k "integration" -v
 
 ### 4. Local Testing
 ```bash
-# Test CLI with mock connection (interactive mode)
-meshbot test --meshcore-type mock
+# Test CLI with mock connection
+meshbot test user1 "hello" --meshcore-type mock
 
 # Test with custom prompt file
-meshbot --custom-prompt my_prompt.txt --meshcore-type mock
+meshbot test user1 "hello" --custom-prompt my_prompt.txt --meshcore-type mock
 
-# Test with custom configuration
-meshbot --config test_config.json --meshcore-type mock
+# Test with custom node name
+meshbot test user1 "hello" --node-name TestBot --meshcore-type mock
 
 # Run with verbose logging
-meshbot -vv --meshcore-type mock
+meshbot run -vv --meshcore-type mock
+
+# Run with all options via command-line
+meshbot run --node-name MyBot --meshcore-type serial --meshcore-port /dev/ttyUSB0
 
 # Run examples
 python examples/basic_usage.py

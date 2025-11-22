@@ -54,12 +54,6 @@ def cli() -> None:
 
 
 @cli.command()
-@click.option(
-    "--config",
-    "-c",
-    type=click.Path(exists=True, path_type=Path),
-    help="Path to configuration file",
-)
 @click.option("--model", "-m", help="AI model to use (e.g., openai:gpt-4o-mini)")
 @click.option("--activation-phrase", help="Activation phrase for channel messages")
 @click.option("--listen-channel", help="Channel to listen to (e.g., 0 for General)")
@@ -100,7 +94,6 @@ def cli() -> None:
     "--log-file", type=click.Path(path_type=Path), help="Log file path"
 )
 def run(
-    config: Optional[Path],
     model: Optional[str],
     activation_phrase: Optional[str],
     listen_channel: Optional[str],
@@ -133,11 +126,11 @@ def run(
     setup_logging(level, log_file)
     logger = logging.getLogger(__name__)
 
-    # Load configuration
+    # Load configuration from environment variables
     try:
-        app_config = load_config(config)
+        app_config = load_config()
 
-        # Override with command line arguments
+        # Override with command line arguments (highest priority)
         # AI configuration
         if model:
             app_config.ai.model = model
@@ -252,12 +245,6 @@ async def run_agent(agent: MeshBotAgent) -> None:
 @cli.command()
 @click.argument("from_id")
 @click.argument("message")
-@click.option(
-    "--config",
-    "-c",
-    type=click.Path(exists=True, path_type=Path),
-    help="Path to configuration file",
-)
 @click.option("--model", "-m", help="AI model to use (e.g., openai:gpt-4o-mini)")
 @click.option("--activation-phrase", help="Activation phrase for channel messages")
 @click.option("--listen-channel", help="Channel to listen to (e.g., 0 for General)")
@@ -301,7 +288,6 @@ async def run_agent(agent: MeshBotAgent) -> None:
 def test(
     from_id: str,
     message: str,
-    config: Optional[Path],
     model: Optional[str],
     activation_phrase: Optional[str],
     listen_channel: Optional[str],
@@ -333,11 +319,11 @@ def test(
     else:
         level = "INFO"
 
-    # Load configuration
+    # Load configuration from environment variables
     try:
-        app_config = load_config(config)
+        app_config = load_config()
 
-        # Override with command line arguments
+        # Override with command line arguments (highest priority)
         # AI configuration
         if model:
             app_config.ai.model = model
