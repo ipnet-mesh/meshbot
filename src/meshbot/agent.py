@@ -313,7 +313,10 @@ class MeshBotAgent:
                 logger.info("Message filtered out, not responding")
                 return True  # Not an error, just filtered out
 
+            logger.debug("Passed response filter, proceeding to handle message")
+
             # Store user message in memory
+            logger.debug("Storing user message in memory...")
             await self.memory.add_message(
                 user_id=message.sender,
                 role="user",
@@ -321,17 +324,22 @@ class MeshBotAgent:
                 message_type=message.message_type,
                 timestamp=message.timestamp,
             )
+            logger.debug("User message stored successfully")
 
             # Get conversation context
+            logger.debug("Retrieving conversation context...")
             context = await self.memory.get_conversation_context(
                 user_id=message.sender, message_type=message.message_type
             )
             logger.debug(f"Retrieved {len(context)} messages from conversation history")
 
             # Create dependencies for this interaction
+            logger.debug("Creating dependencies for agent...")
             deps = MeshBotDependencies(meshcore=self.meshcore, memory=self.memory)
+            logger.debug("Dependencies created successfully")
 
             # Build the prompt with conversation history
+            logger.debug("Building prompt with conversation history...")
             if context and len(context) > 1:  # Only include history if there's more than just current message
                 # Include previous context in the prompt (excluding the message we just added)
                 prompt = f"Conversation history:\n"
