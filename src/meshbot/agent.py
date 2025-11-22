@@ -53,6 +53,8 @@ class MeshBotAgent:
         activation_phrase: str = "@bot",
         listen_channel: str = "0",
         custom_prompt: Optional[str] = None,
+        base_url: Optional[str] = None,
+        max_message_length: int = 120,
         **meshcore_kwargs,
     ):
         self.model = model
@@ -61,6 +63,8 @@ class MeshBotAgent:
         self.activation_phrase = activation_phrase.lower()
         self.listen_channel = listen_channel
         self.custom_prompt = custom_prompt
+        self.base_url = base_url
+        self.max_message_length = max_message_length
         self.meshcore_kwargs = meshcore_kwargs
 
         # Initialize components
@@ -74,6 +78,17 @@ class MeshBotAgent:
         """Initialize all components."""
         logger.info("Initializing MeshBot agent...")
 
+        # Set up environment variables for OpenAI-compatible endpoints FIRST
+        # This must happen before any component initialization
+        import os
+
+        # Map LLM_API_KEY to OPENAI_API_KEY for pydantic-ai and Memori
+        # These libraries expect OPENAI_API_KEY, but we use LLM_API_KEY for provider-agnostic config
+        llm_api_key = os.getenv("LLM_API_KEY")
+        if llm_api_key and not os.getenv("OPENAI_API_KEY"):
+            os.environ["OPENAI_API_KEY"] = llm_api_key
+            logger.debug("Set OPENAI_API_KEY from LLM_API_KEY")
+
         # Initialize MeshCore interface
         from .meshcore_interface import ConnectionType
 
@@ -82,20 +97,24 @@ class MeshBotAgent:
             connection_type, **self.meshcore_kwargs
         )
 
-        # Initialize memory manager
-        self.memory = MemoryManager(self.memory_path or Path("memory_metadata.json"))
+        # Initialize memory manager with file-based chat logs
+        self.memory = MemoryManager(
+            storage_path=self.memory_path or Path("logs"),  # Not used, kept for compatibility
+            max_lines=1000,  # Keep last 1000 lines per log file
+        )
         await self.memory.load()
-
-        # Enable Memori for automatic conversation memory
-        self.memory.enable_memori()
 
         # Build agent instructions
         base_instructions = (
             "You are MeshBot, an AI assistant that communicates through the MeshCore network. "
             "You are helpful, concise, and knowledgeable. "
-            "Always be friendly and professional in your responses. "
-            "When users send 'ping', respond with 'pong'. "
-            "Keep responses relatively short and clear for network communication."
+            "MeshCore is a simple text messaging system with strict limitations:\n"
+            f"- Keep responses SHORT and TO THE POINT (max {self.max_message_length} chars)\n"
+            "- NO emoji, NO newlines, NO complex formatting\n"
+            "- Use plain text only\n"
+            "- Be direct and clear\n"
+            "- If you need to say more, keep it brief anyway\n"
+            "When users send 'ping', respond with 'pong'."
         )
 
         # Add custom prompt if provided
@@ -105,6 +124,11 @@ class MeshBotAgent:
             )
         else:
             instructions = base_instructions
+
+        # Set base URL for custom endpoints if provided
+        if self.base_url:
+            os.environ["OPENAI_BASE_URL"] = self.base_url
+            logger.info(f"Using custom LLM base URL: {self.base_url}")
 
         # Create Pydantic AI agent
         self.agent = Agent(
@@ -132,12 +156,11 @@ class MeshBotAgent:
             """Get information about a user."""
             try:
                 memory = await ctx.deps.memory.get_user_memory(user_id)
-                stats = await ctx.deps.memory.get_statistics()
 
-                info = f"User: {memory.user_name or user_id}\n"
-                info += f"Total messages: {memory.total_messages}\n"
-                info += f"First seen: {memory.first_seen}\n"
-                info += f"Last seen: {memory.last_seen}\n"
+                info = f"User: {memory.get('user_name') or user_id}\n"
+                info += f"Total messages: {memory.get('total_messages', 0)}\n"
+                info += f"First seen: {memory.get('first_seen', 'Never')}\n"
+                info += f"Last seen: {memory.get('last_seen', 'Never')}\n"
 
                 return info
             except Exception as e:
@@ -187,8 +210,8 @@ class MeshBotAgent:
 
                 response = "Recent conversation:\n"
                 for msg in history:
-                    role = "User" if msg.role == "user" else "Assistant"
-                    response += f"{role}: {msg.content}\n"
+                    role = "User" if msg["role"] == "user" else "Assistant"
+                    response += f"{role}: {msg['content']}\n"
 
                 return response.strip()
             except Exception as e:
@@ -208,6 +231,18 @@ class MeshBotAgent:
 
         # Connect to MeshCore
         await self.meshcore.connect()
+
+        # Sync companion node clock
+        try:
+            await self.meshcore.sync_time()
+        except Exception as e:
+            logger.warning(f"Clock sync failed: {e}")
+
+        # Send local advertisement to announce presence
+        try:
+            await self.meshcore.send_local_advert()
+        except Exception as e:
+            logger.warning(f"Local advert failed: {e}")
 
         self._running = True
         logger.info("MeshBot agent started successfully")
@@ -231,6 +266,59 @@ class MeshBotAgent:
 
         logger.info("MeshBot agent stopped")
 
+    def _split_message(self, message: str) -> List[str]:
+        """
+        Split a long message into chunks that fit within max_message_length.
+        Splits on word boundaries and adds (1/x) indicators.
+
+        Args:
+            message: The message to split
+
+        Returns:
+            List of message chunks
+        """
+        # Remove any newlines and extra whitespace
+        message = " ".join(message.split())
+
+        # If message fits, return as-is
+        if len(message) <= self.max_message_length:
+            return [message]
+
+        # Calculate how much space we need for " (X/Y)" suffix
+        # Worst case: " (99/99)" = 8 chars
+        suffix_space = 8
+        chunk_size = self.max_message_length - suffix_space
+
+        # Split into chunks on word boundaries
+        words = message.split()
+        chunks = []
+        current_chunk = []
+        current_length = 0
+
+        for word in words:
+            word_length = len(word) + (1 if current_chunk else 0)  # +1 for space
+
+            if current_length + word_length <= chunk_size:
+                current_chunk.append(word)
+                current_length += word_length
+            else:
+                # Save current chunk and start new one
+                if current_chunk:
+                    chunks.append(" ".join(current_chunk))
+                current_chunk = [word]
+                current_length = len(word)
+
+        # Add the last chunk
+        if current_chunk:
+            chunks.append(" ".join(current_chunk))
+
+        # Add (X/Y) indicators
+        total = len(chunks)
+        if total > 1:
+            chunks = [f"{chunk} ({i+1}/{total})" for i, chunk in enumerate(chunks)]
+
+        return chunks
+
     def _should_respond_to_message(self, message: MeshCoreMessage) -> bool:
         """
         Determine if the bot should respond to this message.
@@ -251,56 +339,110 @@ class MeshBotAgent:
             # Handle both string channel names and numeric IDs
             message_channel = str(getattr(message, "channel", "0"))
             if message_channel != self.listen_channel:
-                logger.debug(
-                    f"Ignoring message from channel {message_channel}, "
-                    f"listening to {self.listen_channel}"
-                )
                 return False
 
             # Check for activation phrase (case-insensitive)
             if self.activation_phrase.lower() in message.content.lower():
                 return True
             else:
-                logger.debug(
-                    f"Ignoring channel message without activation phrase: {message.content}"
-                )
                 return False
 
         # Default: don't respond to broadcast messages or unknown types
         return False
 
-    async def _handle_message(self, message: MeshCoreMessage) -> None:
-        """Handle incoming message."""
+    async def _handle_message(self, message: MeshCoreMessage, raise_errors: bool = False) -> bool:
+        """
+        Handle incoming message.
+
+        Args:
+            message: The incoming message to handle
+            raise_errors: If True, re-raise exceptions after logging (useful for testing)
+
+        Returns:
+            True if message was handled successfully, False otherwise
+        """
         try:
             logger.info(f"Received message from {message.sender}: {message.content}")
 
             # Check if we should respond to this message
-            if not self._should_respond_to_message(message):
-                return
+            should_respond = self._should_respond_to_message(message)
+            if not should_respond:
+                logger.info("Message filtered out, not responding")
+                return True  # Not an error, just filtered out
 
-            # Store message in memory
-            await self.memory.add_message(message, is_from_user=True)
+            # Determine conversation identifier
+            # For channels: use channel as identifier
+            # For DMs: use sender as identifier
+            if message.message_type == "channel":
+                conversation_id = message.channel or "0"
+            else:
+                conversation_id = message.sender
+
+            # Store user message in memory
+            await self.memory.add_message(
+                user_id=conversation_id,
+                role="user",
+                content=message.content,
+                message_type=message.message_type,
+                timestamp=message.timestamp,
+            )
+
+            # Get conversation context
+            context = await self.memory.get_conversation_context(
+                user_id=conversation_id, message_type=message.message_type
+            )
 
             # Create dependencies for this interaction
             deps = MeshBotDependencies(meshcore=self.meshcore, memory=self.memory)
 
-            # Run agent (Memori will automatically inject conversation context)
-            result = await self.agent.run(message.content, deps=deps)
+            # Build the prompt with conversation history
+            if context and len(context) > 1:  # Only include history if there's more than just current message
+                # Include previous context in the prompt (excluding the message we just added)
+                prompt = f"Conversation history:\n"
+                for msg in context[:-1][-10:]:  # Last 10 messages, excluding current
+                    role_name = "User" if msg["role"] == "user" else "Assistant"
+                    prompt += f"{role_name}: {msg['content']}\n"
+                prompt += f"\nUser: {message.content}\nAssistant:"
+            else:
+                prompt = message.content
+
+            # Run agent with conversation context
+            result = await self.agent.run(prompt, deps=deps)
 
             # Send response
             response = result.output.response
             if response:
-                await self.meshcore.send_message(message.sender, response)
+                # Determine destination based on message type
+                if message.message_type == "channel":
+                    # For channel messages, send back to the channel
+                    destination = message.channel or "0"
+                else:
+                    # For DMs, send back to the sender
+                    destination = message.sender
 
-                # Store assistant response in memory
-                assistant_message = MeshCoreMessage(
-                    sender="meshbot",
-                    sender_name="MeshBot",
+                # Split message if it's too long
+                message_chunks = self._split_message(response)
+
+                logger.info(f"Sending {len(message_chunks)} message(s) to {destination}")
+
+                # Send all chunks
+                for i, chunk in enumerate(message_chunks):
+                    await self.meshcore.send_message(destination, chunk)
+
+                    # Small delay between messages to avoid flooding
+                    if i < len(message_chunks) - 1:
+                        await asyncio.sleep(0.5)
+
+                # Store assistant response in memory (original full response)
+                # For channels, use channel as user_id; for DMs, use sender
+                user_id = destination if message.message_type == "channel" else message.sender
+                await self.memory.add_message(
+                    user_id=user_id,
+                    role="assistant",
                     content=response,
+                    message_type=message.message_type,
                     timestamp=asyncio.get_event_loop().time(),
-                    message_type="direct",
                 )
-                await self.memory.add_message(assistant_message, is_from_user=False)
 
             # Handle any additional actions
             if result.output.action:
@@ -308,16 +450,36 @@ class MeshBotAgent:
                     result.output.action, result.output.action_data, message.sender
                 )
 
+            return True
+
         except Exception as e:
-            logger.error(f"Error handling message: {e}")
-            # Send error response
-            try:
-                await self.meshcore.send_message(
-                    message.sender,
-                    "Sorry, I encountered an error processing your message.",
-                )
-            except:
-                pass
+            error_msg = str(e)
+            logger.error(f"Error handling message: {error_msg}")
+
+            # Check for common API errors and provide helpful messages
+            if "status_code: 403" in error_msg or "Access denied" in error_msg:
+                logger.error("API Access Denied - Check your API key and account status")
+                logger.error("Make sure LLM_API_KEY is valid and has sufficient credits")
+            elif "status_code: 401" in error_msg or "Unauthorized" in error_msg:
+                logger.error("API Unauthorized - Check your LLM_API_KEY")
+            elif "status_code: 429" in error_msg or "rate_limit" in error_msg:
+                logger.error("API Rate Limit - Too many requests")
+
+            # Send error response (in production mode)
+            if not raise_errors:
+                try:
+                    await self.meshcore.send_message(
+                        message.sender,
+                        "Sorry, I encountered an error processing your message.",
+                    )
+                except:
+                    pass
+
+            # Re-raise in test mode
+            if raise_errors:
+                raise
+
+            return False
 
     async def _handle_action(
         self, action: str, action_data: Optional[Dict[str, Any]], sender: str

@@ -74,6 +74,16 @@ class MeshCoreInterface(ABC):
         """Check if connected to MeshCore device."""
         pass
 
+    @abstractmethod
+    async def sync_time(self) -> bool:
+        """Sync companion node's clock to system time."""
+        pass
+
+    @abstractmethod
+    async def send_local_advert(self) -> bool:
+        """Send a local advertisement to announce presence."""
+        pass
+
 
 class MockMeshCoreInterface(MeshCoreInterface):
     """Mock implementation for testing and development."""
@@ -148,6 +158,24 @@ class MockMeshCoreInterface(MeshCoreInterface):
         # Return True if node exists in contacts
         return destination in self._contacts
 
+    async def sync_time(self) -> bool:
+        """Mock sync companion node clock."""
+        if not self._connected:
+            return False
+
+        logger.info("Mock: Syncing companion node clock to system time")
+        await asyncio.sleep(0.1)
+        return True
+
+    async def send_local_advert(self) -> bool:
+        """Mock send local advertisement."""
+        if not self._connected:
+            return False
+
+        logger.info("Mock: Sending local advertisement")
+        await asyncio.sleep(0.1)
+        return True
+
     def is_connected(self) -> bool:
         """Check if mock connected."""
         return self._connected
@@ -196,6 +224,7 @@ class RealMeshCoreInterface(MeshCoreInterface):
         try:
             from meshcore import (  # type: ignore
                 BLEConnection,
+                EventType,
                 MeshCore,
                 SerialConnection,
                 TCPConnection,
@@ -225,12 +254,17 @@ class RealMeshCoreInterface(MeshCoreInterface):
             )
 
             # Connect and start auto message fetching
+            logger.info("Connecting to MeshCore...")
             await self._meshcore.connect()
+            logger.info("Starting auto message fetching...")
             await self._meshcore.start_auto_message_fetching()
 
-            # Set up message event subscription
+            # Set up message event subscriptions
             self._meshcore.subscribe(
-                self._meshcore.dispatcher.EventType.MESSAGE, self._on_message_received
+                EventType.CONTACT_MSG_RECV, self._on_message_received
+            )
+            self._meshcore.subscribe(
+                EventType.CHANNEL_MSG_RECV, self._on_message_received
             )
 
             self._connected = True
@@ -302,6 +336,36 @@ class RealMeshCoreInterface(MeshCoreInterface):
         """Check if real MeshCore is connected."""
         return bool(self._connected and self._meshcore and self._meshcore.is_connected)
 
+    async def sync_time(self) -> bool:
+        """Sync companion node's clock to system time."""
+        if not self._connected or not self._meshcore:
+            return False
+
+        try:
+            import time
+            logger.info("Syncing companion node clock to system time...")
+            current_time = int(time.time())
+            result = await self._meshcore.commands.set_time(current_time)
+            logger.info("Clock sync completed")
+            return result is not None
+        except Exception as e:
+            logger.error(f"Failed to sync time: {e}")
+            return False
+
+    async def send_local_advert(self) -> bool:
+        """Send a local advertisement to announce presence."""
+        if not self._connected or not self._meshcore:
+            return False
+
+        try:
+            logger.info("Sending local advertisement...")
+            result = await self._meshcore.commands.send_advert(flood=False)
+            logger.info("Local advertisement sent")
+            return result is not None
+        except Exception as e:
+            logger.error(f"Failed to send local advert: {e}")
+            return False
+
     def add_message_handler(self, handler: Callable[[MeshCoreMessage], Any]) -> None:
         """Add handler for incoming messages."""
         self._message_handlers.append(handler)
@@ -309,12 +373,25 @@ class RealMeshCoreInterface(MeshCoreInterface):
     async def _on_message_received(self, event) -> None:
         """Handle incoming message events."""
         try:
+            payload = event.payload
+
+            # Extract message fields from MeshCore event payload
+            sender = payload.get("pubkey_prefix", "")
+            content = payload.get("text", "")
+            sender_timestamp = payload.get("sender_timestamp", 0)
+            msg_type = payload.get("type", "PRIV")
+            channel = payload.get("channel", "0")  # Extract channel ID
+
+            # Map MeshCore message types to our types
+            message_type = "direct" if msg_type == "PRIV" else "channel"
+
             message = MeshCoreMessage(
-                sender=event.payload.get("sender", ""),
-                sender_name=event.payload.get("sender_name"),
-                content=event.payload.get("content", ""),
-                timestamp=asyncio.get_event_loop().time(),
-                message_type=event.payload.get("type", "direct"),
+                sender=sender,
+                sender_name=None,  # MeshCore doesn't provide name in message events
+                content=content,
+                timestamp=float(sender_timestamp) if sender_timestamp else asyncio.get_event_loop().time(),
+                message_type=message_type,
+                channel=str(channel) if channel is not None else None,
             )
 
             # Call all registered handlers
@@ -325,7 +402,7 @@ class RealMeshCoreInterface(MeshCoreInterface):
                     else:
                         handler(message)
                 except Exception as e:
-                    logger.error(f"Error in message handler: {e}")
+                    logger.error(f"Error in message handler: {e}", exc_info=True)
 
         except Exception as e:
             logger.error(f"Error processing message event: {e}")

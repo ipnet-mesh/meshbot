@@ -22,10 +22,8 @@ dependencies = [
     "pydantic-ai>=0.0.14",
     "pydantic>=2.0.0",
     "meshcore>=2.0.0",
-    "aiofiles>=24.0.0",
     "python-dotenv>=1.0.0",
-    "rich>=13.0.0",
-    "memorisdk>=2.3.0",
+    "click>=8.0.0",
 ]
 
 [project.optional-dependencies]
@@ -40,7 +38,7 @@ dev = [
 ]
 
 [project.scripts]
-meshbot = "meshbot.main:main"
+meshbot = "meshbot.main:cli"
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -70,11 +68,7 @@ module = "meshcore.*"
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
-module = "sentence_transformers.*"
-ignore_missing_imports = true
-
-[[tool.mypy.overrides]]
-module = "faiss.*"
+module = "memori.*"
 ignore_missing_imports = true
 
 [tool.isort]

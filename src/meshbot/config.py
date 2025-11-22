@@ -40,12 +40,17 @@ class MeshCoreConfig:
 
 @dataclass
 class AIConfig:
-    """Configuration for AI model."""
+    """Configuration for AI model and LLM API."""
 
     model: str = field(
-        default_factory=lambda: os.getenv("AI_MODEL", "openai:gpt-4o-mini")
+        default_factory=lambda: os.getenv("LLM_MODEL", "openai:gpt-4o-mini")
     )
-    api_key: Optional[str] = field(default_factory=lambda: os.getenv("OPENAI_API_KEY"))
+    api_key: Optional[str] = field(
+        default_factory=lambda: os.getenv("LLM_API_KEY")
+    )
+    base_url: Optional[str] = field(
+        default_factory=lambda: os.getenv("LLM_BASE_URL")
+    )
     max_tokens: int = field(
         default_factory=lambda: int(os.getenv("AI_MAX_TOKENS", "500"))
     )
@@ -57,6 +62,9 @@ class AIConfig:
     )
     listen_channel: str = field(
         default_factory=lambda: os.getenv("LISTEN_CHANNEL", "0")
+    )
+    max_message_length: int = field(
+        default_factory=lambda: int(os.getenv("MAX_MESSAGE_LENGTH", "120"))
     )
     custom_prompt_file: Optional[Path] = field(default=None)
 
@@ -146,10 +154,13 @@ class MeshBotConfig:
         if self.meshcore.connection_type == "tcp" and not self.meshcore.host:
             raise ValueError("TCP connection requires host to be specified")
 
-        # Validate AI config
+        # Validate AI config - check if API key is needed
+        # Most models require an API key unless using local Ollama without auth
         if self.ai.model.startswith("openai") and not self.ai.api_key:
-            if not os.getenv("OPENAI_API_KEY"):
-                raise ValueError("OpenAI model requires API key to be set")
+            if not os.getenv("LLM_API_KEY"):
+                raise ValueError(
+                    "LLM API key required. Set LLM_API_KEY environment variable"
+                )
 
         # Validate paths
         self.memory.storage_path.parent.mkdir(parents=True, exist_ok=True)

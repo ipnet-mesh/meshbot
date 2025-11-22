@@ -90,42 +90,37 @@ pytest tests/test_basic.py -v
 1. **MeshCore Interface** (`src/meshbot/meshcore_interface.py`)
    - Abstract communication layer
    - Mock implementation for testing
-   - Real implementation for production
+   - Real implementation using meshcore library
+   - Auto clock sync and local advertisement on startup
+   - Event-based message handling (DMs and channels)
 
 2. **AI Agent** (`src/meshbot/agent.py`)
    - Pydantic AI agent with tools
    - Dependency injection system
    - Structured responses
+   - Automatic message splitting for MeshCore length limits
+   - Smart message routing (DM vs channel)
 
 3. **Memory System** (`src/meshbot/memory.py`)
-   - User conversation history
-   - JSON-based persistence
-   - User preferences and context
+   - Simple text file-based chat logs
+   - Separate logs for DMs and channels
+   - Automatic trimming to 1000 lines per conversation
+   - Format: `timestamp|role|content`
+   - Persistent across restarts
 
-4. **Knowledge Base** (`src/meshbot/knowledge.py`)
-   - Text file indexing
-   - Search functionality
-   - Optional vector embeddings
-
-5. **Message Router** (`src/meshbot/message_router.py`)
-   - Priority-based message handling
-   - Command parsing
-   - Extensible handlers
-
-6. **Configuration** (`src/meshbot/config.py`)
+4. **Configuration** (`src/meshbot/config.py`)
    - Environment variable support
    - JSON configuration files
    - Validation
+   - OpenAI-compatible endpoint configuration
 
 ### Dependencies
 
 #### Core Dependencies
 - `pydantic-ai` - AI agent framework
 - `pydantic` - Data validation
-- `meshcore` - MeshCore communication
-- `aiofiles` - Async file operations
+- `meshcore` - MeshCore communication library
 - `python-dotenv` - Environment variables
-- `rich` - Terminal output
 - `click` - CLI framework
 
 #### Development Dependencies
@@ -138,11 +133,6 @@ pytest tests/test_basic.py -v
 - `flake8` - Linting
 - `bandit` - Security checking
 - `pre-commit` - Git hooks
-
-#### Optional Dependencies
-- `sentence-transformers` - Vector embeddings
-- `faiss-cpu` - Vector search
-- `numpy` - Numerical operations
 
 ## 🔄 Development Workflow
 
@@ -200,11 +190,17 @@ pytest tests/ -k "integration" -v
 
 ### 4. Local Testing
 ```bash
-# Test CLI with mock connection
-meshbot --meshcore-type mock --interactive
+# Test CLI with mock connection (interactive mode)
+meshbot test --meshcore-type mock
+
+# Test with custom prompt file
+meshbot --custom-prompt my_prompt.txt --meshcore-type mock
 
 # Test with custom configuration
 meshbot --config test_config.json --meshcore-type mock
+
+# Run with verbose logging
+meshbot -vv --meshcore-type mock
 
 # Run examples
 python examples/basic_usage.py
@@ -217,14 +213,14 @@ meshbot/
 ├── .venv/                 # Virtual environment (gitignored)
 ├── src/meshbot/           # Main package
 │   ├── __init__.py
-│   ├── agent.py           # Pydantic AI agent
+│   ├── agent.py           # Pydantic AI agent with message splitting
 │   ├── meshcore_interface.py  # MeshCore communication
-│   ├── memory.py          # User memory management
-│   ├── knowledge.py       # Knowledge base system
-│   ├── message_router.py  # Message handling
+│   ├── memory.py          # Text file-based chat logs
 │   ├── config.py          # Configuration management
 │   └── main.py           # CLI entry point
-├── knowledge/             # Knowledge base files
+├── logs/                  # Chat log files (auto-created)
+│   ├── channel.txt        # Channel conversation log
+│   └── dm_*.txt          # Direct message logs per user
 ├── tests/                # Test suite
 │   ├── test_basic.py
 │   └── conftest.py       # pytest configuration
@@ -235,7 +231,8 @@ meshbot/
 ├── .pre-commit-config.yaml # Pre-commit hooks
 ├── pyproject.toml        # Project configuration
 ├── README.md             # Project documentation
-└── AGENTS.md             # This file
+├── AGENTS.md             # This file
+└── CLAUDE.md             # References AGENTS.md
 ```
 
 ## 🎯 Development Guidelines
@@ -274,24 +271,33 @@ meshbot/
 4. Write tests for the tool
 5. Update documentation
 
-### Adding New Message Handler
-1. Create handler class in `src/meshbot/message_router.py`
-2. Implement `can_handle()` and `handle()` methods
-3. Register in `MessageRouter.__init__()`
-4. Write tests for the handler
+Example:
+```python
+@self.agent.tool
+async def my_tool(ctx: RunContext[MeshBotDependencies], param: str) -> str:
+    """Description of what the tool does."""
+    # Implementation here
+    return "result"
+```
 
 ### Adding New Configuration Option
 1. Add field to appropriate config class in `src/meshbot/config.py`
-2. Add environment variable loading
+2. Add environment variable loading with `os.getenv()`
 3. Add validation in `validate()` method
 4. Update `.env.example`
 5. Update documentation
 
-### Adding New Knowledge Base Feature
-1. Implement in `src/meshbot/knowledge.py`
-2. Add to `SimpleKnowledgeBase` or `VectorKnowledgeBase`
-3. Write tests for the feature
-4. Update examples and documentation
+### Modifying Memory System
+The memory system uses simple text files in `logs/`:
+- **Channel messages**: `logs/channel.txt`
+- **Direct messages**: `logs/dm_{user_id}.txt`
+- **Format**: `timestamp|role|content` (pipes in content are escaped to `│`)
+- **Limit**: 1000 lines per file (auto-trimmed)
+
+To modify:
+1. Update `src/meshbot/memory.py`
+2. Maintain backward compatibility with existing log files
+3. Update documentation if format changes
 
 ## 🚨 Troubleshooting
 
