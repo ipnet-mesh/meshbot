@@ -245,6 +245,11 @@ class RealMeshCoreInterface(MeshCoreInterface):
         self._network_events_path.parent.mkdir(exist_ok=True)
         self._max_network_events = 100  # Keep last 100 events
 
+        # Node names tracking
+        self._node_names_path = Path("logs") / "node_names.txt"
+        self._node_names_path.parent.mkdir(exist_ok=True)
+        self._max_node_names = 1000  # Keep last 1000 name mappings
+
     async def connect(self) -> None:
         """Connect to real MeshCore device."""
         try:
@@ -302,6 +307,9 @@ class RealMeshCoreInterface(MeshCoreInterface):
             )
             self._meshcore.subscribe(EventType.STATUS_RESPONSE, self._on_network_event)
             logger.info("Subscribed to network events for situational awareness")
+
+            # Sync node names from contacts list (leverages automatic contact discovery)
+            await self._sync_node_names_from_contacts()
 
             # Get bot's own public key for message filtering
             try:
@@ -531,17 +539,26 @@ class RealMeshCoreInterface(MeshCoreInterface):
                 )
                 name = payload.get("adv_name", "") or payload.get("name", "")
 
+                # Update node name mapping if we have both
+                if sender != "unknown" and name:
+                    self._update_node_name(sender, name)
+
+                # Try to get friendly name from our mapping
+                friendly_name = (
+                    self._get_node_name(sender) if sender != "unknown" else None
+                )
+
                 # If sender is still unknown, log the full payload for debugging
                 if sender == "unknown":
                     logger.warning(
                         f"Could not extract sender from advertisement: {payload}"
                     )
 
-                event_info = (
-                    f"ADVERT from {sender[:16] if sender != 'unknown' else sender}"
-                )
-                if name:
-                    event_info += f" ({name})"
+                # Format event with friendly name if available
+                sender_display = sender[:16] if sender != "unknown" else sender
+                event_info = f"ADVERT from {sender_display}"
+                if friendly_name:
+                    event_info += f" ({friendly_name})"
             elif event_type == "new_contact":
                 pubkey = (
                     payload.get("public_key")
@@ -550,11 +567,21 @@ class RealMeshCoreInterface(MeshCoreInterface):
                     or "unknown"
                 )
                 name = payload.get("adv_name", "") or payload.get("name", "")
-                event_info = (
-                    f"NEW_CONTACT {pubkey[:16] if pubkey != 'unknown' else pubkey}"
+
+                # Update node name mapping if we have both
+                if pubkey != "unknown" and name:
+                    self._update_node_name(pubkey, name)
+
+                # Try to get friendly name from our mapping
+                friendly_name = (
+                    self._get_node_name(pubkey) if pubkey != "unknown" else None
                 )
-                if name:
-                    event_info += f" ({name})"
+
+                # Format event with friendly name if available
+                pubkey_display = pubkey[:16] if pubkey != "unknown" else pubkey
+                event_info = f"NEW_CONTACT {pubkey_display}"
+                if friendly_name:
+                    event_info += f" ({friendly_name})"
             elif event_type == "path_update":
                 dest = (
                     payload.get("destination")
@@ -576,7 +603,19 @@ class RealMeshCoreInterface(MeshCoreInterface):
                     or payload.get("from")
                     or "unknown"
                 )
-                event_info = f"STATUS from {from_node[:16] if from_node != 'unknown' else from_node}"
+
+                # Try to get friendly name from our mapping
+                friendly_name = (
+                    self._get_node_name(from_node) if from_node != "unknown" else None
+                )
+
+                # Format event with friendly name if available
+                from_node_display = (
+                    from_node[:16] if from_node != "unknown" else from_node
+                )
+                event_info = f"STATUS from {from_node_display}"
+                if friendly_name:
+                    event_info += f" ({friendly_name})"
 
             # Log to file
             log_line = f"{timestamp}|{event_info}"
@@ -636,6 +675,104 @@ class RealMeshCoreInterface(MeshCoreInterface):
         except Exception as e:
             logger.error(f"Error getting network events: {e}")
             return []
+
+    def _update_node_name(self, pubkey: str, name: str) -> None:
+        """Update or add a node name mapping.
+
+        Args:
+            pubkey: The node's public key (can be full or prefix)
+            name: The friendly name for the node
+        """
+        try:
+            import time
+
+            # Read existing mappings
+            mappings = {}
+            if self._node_names_path.exists():
+                with open(self._node_names_path, "r", encoding="utf-8") as f:
+                    for line in f:
+                        try:
+                            parts = line.strip().split("|")
+                            if len(parts) >= 2:
+                                mappings[parts[0]] = {
+                                    "name": parts[1],
+                                    "timestamp": (
+                                        float(parts[2]) if len(parts) > 2 else 0
+                                    ),
+                                }
+                        except:
+                            continue
+
+            # Update or add mapping
+            mappings[pubkey] = {"name": name, "timestamp": time.time()}
+
+            # Write back (keeping only most recent entries)
+            with open(self._node_names_path, "w", encoding="utf-8") as f:
+                # Sort by timestamp, keep most recent
+                sorted_mappings = sorted(
+                    mappings.items(), key=lambda x: x[1]["timestamp"], reverse=True
+                )
+                for key, data in sorted_mappings[: self._max_node_names]:
+                    f.write(f"{key}|{data['name']}|{data['timestamp']}\n")
+
+            logger.debug(f"Updated node name: {pubkey[:16]}... -> {name}")
+
+        except Exception as e:
+            logger.error(f"Error updating node name: {e}")
+
+    def _get_node_name(self, pubkey: str) -> Optional[str]:
+        """Get a friendly name for a node by public key.
+
+        Args:
+            pubkey: The node's public key (can be full or prefix)
+
+        Returns:
+            The friendly name if found, None otherwise
+        """
+        try:
+            if not self._node_names_path.exists():
+                return None
+
+            with open(self._node_names_path, "r", encoding="utf-8") as f:
+                for line in f:
+                    try:
+                        parts = line.strip().split("|")
+                        if len(parts) >= 2 and parts[0] == pubkey:
+                            return parts[1]
+                    except:
+                        continue
+
+            return None
+
+        except Exception as e:
+            logger.error(f"Error getting node name: {e}")
+            return None
+
+    async def _sync_node_names_from_contacts(self) -> None:
+        """Sync node names from the contacts list.
+
+        This helps populate names for nodes we've seen before but don't
+        have names for yet, leveraging the automatic contact discovery.
+        """
+        try:
+            if not self._connected or not self._meshcore:
+                return
+
+            await self._meshcore.ensure_contacts()
+
+            for contact_data in self._meshcore.contacts.values():
+                pubkey = contact_data.get("public_key", "")
+                name = contact_data.get("adv_name", "")
+
+                if pubkey and name:
+                    # Use pubkey_prefix if available, otherwise full key
+                    key_to_use = contact_data.get("pubkey_prefix", pubkey)
+                    self._update_node_name(key_to_use, name)
+
+            logger.debug("Synced node names from contacts list")
+
+        except Exception as e:
+            logger.error(f"Error syncing node names from contacts: {e}")
 
 
 def create_meshcore_interface(
