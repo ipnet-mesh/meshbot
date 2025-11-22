@@ -165,14 +165,18 @@ class MemoryManager:
             message_type: "direct", "channel", or "broadcast"
             timestamp: Message timestamp (defaults to current time)
         """
+        logger.debug(f"add_message called: user_id={user_id}, role={role}, message_type={message_type}")
+
         if timestamp is None:
             timestamp = asyncio.get_event_loop().time()
 
         msg = ConversationMessage(
             role=role, content=content, timestamp=timestamp, message_type=message_type
         )
+        logger.debug("ConversationMessage created, attempting to acquire lock...")
 
         async with self._lock:
+            logger.debug("Lock acquired successfully")
             # Add to channel history if it's a channel message
             if message_type == "channel":
                 self._channel_history.append(msg)
@@ -189,6 +193,8 @@ class MemoryManager:
                     f"Added message to DM history for {user_id} "
                     f"({len(self._dm_history[user_id])}/{self.max_dm_history})"
                 )
+
+        logger.debug("add_message completed successfully")
 
     async def get_conversation_context(
         self, user_id: str, message_type: str = "direct", max_messages: Optional[int] = None
@@ -350,8 +356,21 @@ class MemoryManager:
             total_messages = sum(
                 memory.total_messages for memory in self._metadata.values()
             )
-            active_users_24h = len(await self.get_active_users(24))
-            active_users_7d = len(await self.get_active_users(24 * 7))
+
+            # Calculate active users without calling methods that also acquire the lock
+            # This avoids deadlock
+            current_time = asyncio.get_event_loop().time()
+            cutoff_24h = current_time - (24 * 3600)
+            cutoff_7d = current_time - (7 * 24 * 3600)
+
+            active_users_24h = sum(
+                1 for memory in self._metadata.values()
+                if memory.last_seen and memory.last_seen >= cutoff_24h
+            )
+            active_users_7d = sum(
+                1 for memory in self._metadata.values()
+                if memory.last_seen and memory.last_seen >= cutoff_7d
+            )
 
             return {
                 "total_users": total_users,
@@ -359,5 +378,4 @@ class MemoryManager:
                 "active_users_24h": active_users_24h,
                 "active_users_7d": active_users_7d,
                 "average_messages_per_user": total_messages / max(total_users, 1),
-                "memori_enabled": self.memori_enabled,
             }
