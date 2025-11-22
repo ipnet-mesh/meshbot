@@ -231,6 +231,24 @@ class RealMeshCoreInterface(MeshCoreInterface):
             logger.info("Starting auto message fetching...")
             await self._meshcore.start_auto_message_fetching()
 
+            # Clear any pending messages from queue before starting
+            logger.info("Clearing any pending messages from queue...")
+            try:
+                cleared = 0
+                while True:
+                    result = await asyncio.wait_for(
+                        self._meshcore.commands.get_msg(), timeout=1.0
+                    )
+                    if result.type == EventType.NO_MORE_MSGS or result.type == EventType.ERROR:
+                        break
+                    cleared += 1
+                    logger.debug(f"Cleared old message {cleared}: {result.type}")
+                logger.info(f"Cleared {cleared} old messages from queue")
+            except asyncio.TimeoutError:
+                logger.info("No old messages to clear")
+            except Exception as e:
+                logger.warning(f"Error clearing messages: {e}")
+
             # Also start a manual polling task as backup
             logger.info("Starting manual message polling task...")
             asyncio.create_task(self._poll_messages())
