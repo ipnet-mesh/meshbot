@@ -283,6 +283,8 @@ class RealMeshCoreInterface(MeshCoreInterface):
 
     async def _poll_messages(self) -> None:
         """Manually poll for messages every few seconds as backup."""
+        from meshcore import EventType  # Import here for access in polling task
+
         logger.info("Message polling task started")
         while self._connected and self._meshcore:
             try:
