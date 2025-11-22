@@ -128,6 +128,7 @@ def run(
         activation_phrase=app_config.ai.activation_phrase,
         listen_channel=app_config.ai.listen_channel,
         custom_prompt=custom_prompt,
+        base_url=app_config.ai.base_url,
         port=app_config.meshcore.port,
         baudrate=app_config.meshcore.baudrate,
         host=app_config.meshcore.host,
@@ -251,13 +252,15 @@ def test(
         from .meshcore_interface import ConnectionType, MeshCoreMessage
 
         # Check if API key is configured
-        api_key = os.getenv("OPENAI_API_KEY")
+        api_key = os.getenv("LLM_API_KEY") or os.getenv("OPENAI_API_KEY")
         if not api_key:
-            console.print("\n[red]ERROR: OPENAI_API_KEY environment variable not set![/red]")
-            console.print("[yellow]Please set your OpenAI API key:[/yellow]")
-            console.print("  export OPENAI_API_KEY='your-api-key-here'")
+            console.print("\n[red]ERROR: LLM_API_KEY environment variable not set![/red]")
+            console.print("[yellow]Please set your LLM API key:[/yellow]")
+            console.print("  export LLM_API_KEY='your-api-key-here'")
             console.print("\n[yellow]Or create a .env file with:[/yellow]")
-            console.print("  OPENAI_API_KEY=your-api-key-here")
+            console.print("  LLM_API_KEY=your-api-key-here")
+            console.print("\n[yellow]Backward compatibility:[/yellow]")
+            console.print("  OPENAI_API_KEY is still supported but LLM_API_KEY is preferred")
             sys.exit(1)
 
         # Create agent
@@ -268,6 +271,7 @@ def test(
             activation_phrase=app_config.ai.activation_phrase,
             listen_channel=app_config.ai.listen_channel,
             custom_prompt=custom_prompt,
+            base_url=app_config.ai.base_url,
             port=app_config.meshcore.port,
             baudrate=app_config.meshcore.baudrate,
             host=app_config.meshcore.host,

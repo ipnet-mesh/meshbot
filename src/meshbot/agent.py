@@ -53,6 +53,7 @@ class MeshBotAgent:
         activation_phrase: str = "@bot",
         listen_channel: str = "0",
         custom_prompt: Optional[str] = None,
+        base_url: Optional[str] = None,
         **meshcore_kwargs,
     ):
         self.model = model
@@ -61,6 +62,7 @@ class MeshBotAgent:
         self.activation_phrase = activation_phrase.lower()
         self.listen_channel = listen_channel
         self.custom_prompt = custom_prompt
+        self.base_url = base_url
         self.meshcore_kwargs = meshcore_kwargs
 
         # Initialize components
@@ -105,6 +107,13 @@ class MeshBotAgent:
             )
         else:
             instructions = base_instructions
+
+        # Set up base URL for OpenAI-compatible endpoints if provided
+        import os
+        if self.base_url:
+            # Set OPENAI_BASE_URL environment variable for pydantic-ai
+            os.environ["OPENAI_BASE_URL"] = self.base_url
+            logger.info(f"Using custom LLM base URL: {self.base_url}")
 
         # Create Pydantic AI agent
         self.agent = Agent(
@@ -327,9 +336,10 @@ class MeshBotAgent:
             # Check for common API errors and provide helpful messages
             if "status_code: 403" in error_msg or "Access denied" in error_msg:
                 logger.error("API Access Denied - Check your API key and account status")
-                logger.error("Make sure OPENAI_API_KEY is valid and has credits")
+                logger.error("Make sure LLM_API_KEY is valid and has sufficient credits")
+                logger.error("(Legacy OPENAI_API_KEY is also supported)")
             elif "status_code: 401" in error_msg or "Unauthorized" in error_msg:
-                logger.error("API Unauthorized - Check your API key")
+                logger.error("API Unauthorized - Check your LLM_API_KEY")
             elif "status_code: 429" in error_msg or "rate_limit" in error_msg:
                 logger.error("API Rate Limit - Too many requests")
 
