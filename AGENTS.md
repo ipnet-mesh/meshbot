@@ -93,19 +93,33 @@ pytest tests/test_basic.py -v
    - Real implementation using meshcore library
    - Auto clock sync and local advertisement on startup
    - Event-based message handling (DMs and channels)
+   - Network event tracking (ADVERTISEMENT, NEW_CONTACT, PATH_UPDATE, NEIGHBOURS_RESPONSE, STATUS_RESPONSE)
+   - Automatic node name discovery from contacts
+   - Node name mapping storage in `logs/node_names.txt`
+   - Network events logged to `logs/network_events.txt` (max 100 events)
 
 2. **AI Agent** (`src/meshbot/agent.py`)
-   - Pydantic AI agent with tools
+   - Pydantic AI agent with rich tool set
+   - **Utility tools**: calculate, get_current_time, search_history, get_bot_status
+   - **Fun tools**: roll_dice, flip_coin, random_number, magic_8ball
+   - **Network/mesh tools**: status_request, get_contacts, get_user_info, get_conversation_history
    - Dependency injection system
    - Structured responses
    - Automatic message splitting for MeshCore length limits
    - Smart message routing (DM vs channel)
+   - API request limits (max 5 requests per message via UsageLimits)
+   - Network context injection (last 5 network events included in prompts)
+   - Graceful handling of usage limit errors
 
 3. **Memory System** (`src/meshbot/memory.py`)
    - Simple text file-based chat logs
    - Separate logs for DMs and channels
-   - Automatic trimming to 1000 lines per conversation
-   - Format: `timestamp|role|content`
+   - Network event tracking in `logs/network_events.txt`
+   - Node name mappings in `logs/node_names.txt`
+   - Automatic trimming to configured limits (1000 for conversations, 100 for network events)
+   - Format: `timestamp|role|content` for conversations
+   - Format: `timestamp|event_info` for network events
+   - Format: `pubkey|name|timestamp` for node names
    - Persistent across restarts
 
 4. **Configuration** (`src/meshbot/config.py`)
@@ -218,9 +232,11 @@ meshbot/
 │   ├── memory.py          # Text file-based chat logs
 │   ├── config.py          # Configuration management
 │   └── main.py           # CLI entry point
-├── logs/                  # Chat log files (auto-created)
+├── logs/                  # Log files (auto-created)
 │   ├── channel.txt        # Channel conversation log
-│   └── dm_*.txt          # Direct message logs per user
+│   ├── dm_*.txt          # Direct message logs per user
+│   ├── network_events.txt # Network events (adverts, contacts, paths, status)
+│   └── node_names.txt    # Node name mappings (pubkey -> friendly name)
 ├── tests/                # Test suite
 │   ├── test_basic.py
 │   └── conftest.py       # pytest configuration
@@ -280,6 +296,55 @@ async def my_tool(ctx: RunContext[MeshBotDependencies], param: str) -> str:
     return "result"
 ```
 
+### Implemented Tools
+
+The agent currently has the following tools implemented in `src/meshbot/agent.py`:
+
+**Utility Tools** (lines 185-291):
+- `calculate`: Perform mathematical calculations using Python's eval (safely)
+- `get_current_time`: Return current date and time
+- `search_history`: Search conversation history for keywords
+- `get_bot_status`: Return bot uptime and connection status
+
+**Fun Tools** (lines 394-507):
+- `roll_dice`: Roll dice with customizable sides (e.g., 2d6, 1d20)
+- `flip_coin`: Flip a coin (heads or tails)
+- `random_number`: Generate random number in a range
+- `magic_8ball`: Ask the magic 8-ball for wisdom
+
+**Network/Mesh Tools** (lines 172-183, 293-392):
+- `status_request`: Send status request to a node (ping equivalent)
+- `get_contacts`: List all MeshCore contacts with names
+- `get_user_info`: Get user statistics from chat logs
+- `get_conversation_history`: Retrieve recent messages with a user
+
+### Network Awareness Features
+
+The agent includes network situational awareness implemented in `src/meshbot/meshcore_interface.py`:
+
+**Network Event Tracking** (lines 504-638):
+- Subscribes to: ADVERTISEMENT, NEW_CONTACT, PATH_UPDATE, NEIGHBOURS_RESPONSE, STATUS_RESPONSE
+- Events logged to `logs/network_events.txt` with timestamps
+- Max 100 events kept (auto-trimmed)
+- Events formatted with relative timestamps (e.g., "2m ago")
+
+**Node Name Discovery** (lines 640-736):
+- Automatically syncs node names from MeshCore contacts on startup
+- When advertisements are received, queries contacts list for friendly names
+- Stores mappings in `logs/node_names.txt` as `pubkey|name|timestamp`
+- Max 1000 mappings kept (sorted by most recent)
+- Helper methods: `_update_node_name()`, `_get_node_name()`, `_sync_node_names_from_contacts()`
+
+**LLM Context Integration** (`src/meshbot/agent.py` lines 720-748):
+- Last 5 network events included in every prompt
+- Events show friendly names (e.g., "ADVERT from abc123... (NodeName)")
+- Provides network situational awareness to the LLM
+
+**API Cost Control** (`src/meshbot/agent.py` lines 754-757, 779-792):
+- UsageLimits set to max 5 requests per message
+- Graceful error handling for usage limit exceeded
+- Prevents runaway API costs from excessive tool calling
+
 ### Adding New Configuration Option
 1. Add field to appropriate config class in `src/meshbot/config.py`
 2. Add environment variable loading with `os.getenv()`
@@ -291,11 +356,21 @@ async def my_tool(ctx: RunContext[MeshBotDependencies], param: str) -> str:
 The memory system uses simple text files in `logs/`:
 - **Channel messages**: `logs/channel.txt`
 - **Direct messages**: `logs/dm_{user_id}.txt`
-- **Format**: `timestamp|role|content` (pipes in content are escaped to `│`)
-- **Limit**: 1000 lines per file (auto-trimmed)
+- **Network events**: `logs/network_events.txt`
+- **Node names**: `logs/node_names.txt`
+
+**Formats**:
+- Conversations: `timestamp|role|content` (pipes in content are escaped to `│`)
+- Network events: `timestamp|event_info` (e.g., `1734567890.123|ADVERT from 2369759a49261ac6 (NodeName)`)
+- Node names: `pubkey|name|timestamp` (e.g., `2369759a49261ac6|NodeName|1734567890.123`)
+
+**Limits**:
+- 1000 lines for conversation logs (auto-trimmed)
+- 100 events for network events log (auto-trimmed)
+- 1000 mappings for node names (auto-trimmed, sorted by most recent)
 
 To modify:
-1. Update `src/meshbot/memory.py`
+1. Update `src/meshbot/memory.py` or `src/meshbot/meshcore_interface.py` (for network events/node names)
 2. Maintain backward compatibility with existing log files
 3. Update documentation if format changes
 

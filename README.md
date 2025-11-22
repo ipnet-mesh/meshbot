@@ -8,10 +8,14 @@ MeshBot is an intelligent AI agent that communicates through the MeshCore networ
 - **📡 MeshCore Integration**: Communicates via MeshCore network (serial, TCP, BLE, or mock)
 - **🧠 Simple Memory System**: Text file-based chat logs (1000 lines per conversation)
 - **💬 Smart Messaging**: Automatic message splitting with length limits (configurable, default 120 chars)
-- **🔧 Tool System**: Extensible tools for pinging, contact management, and conversation history
+- **🔧 Rich Tool System**: Utility tools (calculator, time, history) and fun tools (dice, coin, 8-ball, random numbers)
+- **🌐 Network Awareness**: Real-time tracking of mesh network events (adverts, contacts, paths, status)
+- **👥 Contact Tracking**: Automatic node name discovery and mapping from mesh advertisements
+- **📊 Situational Context**: Network events and node names included in LLM context for awareness
+- **💰 Cost Control**: API request limits (max 5 per message) to prevent excessive LLM usage
 - **⚙️ Configurable**: Flexible configuration via files and environment variables
 - **🎯 Message Routing**: Intelligent DM and channel message handling with activation phrases
-- **🌐 OpenAI-Compatible**: Works with any OpenAI-compatible endpoint (OpenAI, Groq, Ollama, etc.)
+- **🔌 OpenAI-Compatible**: Works with any OpenAI-compatible endpoint (OpenAI, Groq, Ollama, etc.)
 
 ## Quick Start
 
@@ -98,17 +102,25 @@ meshbot
    - Mock implementation for testing
    - Real implementation using meshcore library
    - Auto clock sync and local advertisement on startup
+   - Network event tracking (advertisements, contacts, paths, status)
+   - Automatic node name discovery and mapping
 
 2. **Memory Manager** (`memory.py`)
    - Simple text file-based chat logs
    - Separate logs for DMs and channels
-   - Automatic trimming to 1000 lines per conversation
+   - Network event logs with timestamps
+   - Node name mapping storage
+   - Automatic trimming to configured limits
    - Format: `timestamp|role|content`
 
 3. **AI Agent** (`agent.py`)
-   - Pydantic AI agent with tools
-   - Structured responses
-   - Automatic message splitting for length limits
+   - Pydantic AI agent with rich tool set
+   - Utility tools (calculate, time, search history, bot status)
+   - Fun tools (dice, coin, random numbers, magic 8-ball)
+   - Network/mesh tools (status requests, contact management)
+   - Structured responses with message splitting
+   - API request limits (max 5 per message)
+   - Network context injection for situational awareness
    - Dependency injection
 
 4. **Configuration** (`config.py`)
@@ -276,35 +288,71 @@ MAX_MESSAGE_LENGTH=120        # Character limit per message chunk
 
 ## Chat Logs
 
-Conversation history is stored in simple text files:
+Conversation history and network data are stored in simple text files:
 
 ```
 logs/
 ├── channel.txt              # Channel conversation (all users)
-└── dm_2369759a4926.txt     # Direct message with specific user
+├── dm_2369759a4926.txt     # Direct message with specific user
+├── network_events.txt       # Network events (adverts, contacts, paths, status)
+└── node_names.txt          # Node name mappings (pubkey -> friendly name)
 ```
 
-Log format:
+### Conversation Log Format
 ```
 1734567890.123|user|Hello, how are you?
 1734567891.456|assistant|I'm doing well, thanks!
 ```
 
+### Network Events Log Format
+```
+1734567890.123|ADVERT from 2369759a49261ac6 (NodeName)
+1734567891.456|NEW_CONTACT 4a5b6c7d8e9f0123 (OtherNode)
+1734567892.789|STATUS from 2369759a49261ac6 (NodeName)
+```
+
+### Node Names Mapping Format
+```
+2369759a49261ac6|NodeName|1734567890.123
+4a5b6c7d8e9f0123|OtherNode|1734567891.456
+```
+
 Logs automatically:
-- Trim to 1000 lines when exceeded
+- Trim to configured limits when exceeded (1000 for conversations, 100 for network events)
 - Persist across restarts
+- Include timestamps for all entries
+- Network events and node names are included in LLM context for situational awareness
 - Can be viewed/edited as plain text files
 
 ## AI Tools
 
-The agent has access to built-in tools:
+The agent has access to three categories of built-in tools:
 
-- **Ping Node**: Test connectivity to specific nodes
-- **Get Contacts**: List available MeshCore contacts
+### Utility Tools
+- **Calculate**: Perform mathematical calculations (e.g., "calculate 25 * 4 + 10")
+- **Get Current Time**: Get the current date and time
+- **Search History**: Search conversation history for specific topics
+- **Get Bot Status**: Check bot uptime and connection status
+
+### Fun Tools
+- **Roll Dice**: Roll dice with custom sides (e.g., "roll 2d6", "roll 1d20")
+- **Flip Coin**: Flip a coin (heads or tails)
+- **Random Number**: Generate random numbers in a range
+- **Magic 8-Ball**: Ask the magic 8-ball for wisdom
+
+### Network/Mesh Tools
+- **Status Request**: Send status request to nodes (ping equivalent)
+- **Get Contacts**: List available MeshCore contacts with their names
 - **Get User Info**: Retrieve user statistics from chat logs
 - **Conversation History**: Access recent messages with a user
 
-When users ask questions, the agent can automatically use these tools.
+### Network Awareness
+The agent automatically receives context about:
+- **Recent Network Events**: Last 5 network events (adverts, new contacts, status responses)
+- **Node Names**: Friendly names for all discovered nodes
+- **Network Activity**: Timing and frequency of mesh network activity
+
+When users ask questions, the agent can automatically use these tools and has awareness of the mesh network state.
 
 ## Development
 
@@ -444,8 +492,18 @@ cat logs/channel.txt
 # View DM with specific user
 cat logs/dm_2369759a4926.txt
 
+# View network events
+cat logs/network_events.txt
+
+# View node name mappings
+cat logs/node_names.txt
+
 # Watch logs in real-time
 tail -f logs/channel.txt
+tail -f logs/network_events.txt
+
+# Monitor all activity
+watch -n 1 'ls -lh logs/'
 ```
 
 ## Contributing
