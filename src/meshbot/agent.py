@@ -313,10 +313,18 @@ class MeshBotAgent:
 
             logger.debug("Passed response filter, proceeding to handle message")
 
+            # Determine conversation identifier
+            # For channels: use channel as identifier
+            # For DMs: use sender as identifier
+            if message.message_type == "channel":
+                conversation_id = message.channel or "0"
+            else:
+                conversation_id = message.sender
+
             # Store user message in memory
-            logger.debug("Storing user message in memory...")
+            logger.debug(f"Storing user message in memory for conversation {conversation_id}...")
             await self.memory.add_message(
-                user_id=message.sender,
+                user_id=conversation_id,
                 role="user",
                 content=message.content,
                 message_type=message.message_type,
@@ -327,7 +335,7 @@ class MeshBotAgent:
             # Get conversation context
             logger.debug("Retrieving conversation context...")
             context = await self.memory.get_conversation_context(
-                user_id=message.sender, message_type=message.message_type
+                user_id=conversation_id, message_type=message.message_type
             )
             logger.debug(f"Retrieved {len(context)} messages from conversation history")
 
@@ -358,12 +366,23 @@ class MeshBotAgent:
             # Send response
             response = result.output.response
             if response:
-                logger.info(f"Sending response to {message.sender}: {response}")
-                await self.meshcore.send_message(message.sender, response)
+                # Determine destination based on message type
+                if message.message_type == "channel":
+                    # For channel messages, send back to the channel
+                    destination = message.channel or "0"
+                    logger.info(f"Sending response to channel {destination}: {response}")
+                else:
+                    # For DMs, send back to the sender
+                    destination = message.sender
+                    logger.info(f"Sending response to {destination}: {response}")
+
+                await self.meshcore.send_message(destination, response)
 
                 # Store assistant response in memory
+                # For channels, use channel as user_id; for DMs, use sender
+                user_id = destination if message.message_type == "channel" else message.sender
                 await self.memory.add_message(
-                    user_id=message.sender,
+                    user_id=user_id,
                     role="assistant",
                     content=response,
                     message_type=message.message_type,
