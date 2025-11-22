@@ -5,6 +5,7 @@ import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from enum import Enum
+from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
@@ -87,6 +88,11 @@ class MeshCoreInterface(ABC):
     @abstractmethod
     async def get_own_public_key(self) -> Optional[str]:
         """Get the bot's own public key/identifier."""
+        pass
+
+    @abstractmethod
+    def get_recent_network_events(self, limit: int = 10) -> List[str]:
+        """Get recent network events for context."""
         pass
 
 
@@ -194,6 +200,10 @@ class MockMeshCoreInterface(MeshCoreInterface):
         """Get the bot's own public key."""
         return self._own_public_key
 
+    def get_recent_network_events(self, limit: int = 10) -> List[str]:
+        """Get recent network events for context (mock returns empty)."""
+        return []  # Mock doesn't track network events
+
     async def _simulate_messages(self) -> None:
         """Simulate incoming messages for testing."""
         while self._connected:
@@ -229,6 +239,11 @@ class RealMeshCoreInterface(MeshCoreInterface):
         self._connected = False
         self._own_public_key: Optional[str] = None
         self._message_handlers: List[Callable[[MeshCoreMessage], Any]] = []
+
+        # Network event logging
+        self._network_events_path = Path("logs") / "network_events.txt"
+        self._network_events_path.parent.mkdir(exist_ok=True)
+        self._max_network_events = 100  # Keep last 100 events
 
     async def connect(self) -> None:
         """Connect to real MeshCore device."""
@@ -277,6 +292,16 @@ class RealMeshCoreInterface(MeshCoreInterface):
             self._meshcore.subscribe(
                 EventType.CHANNEL_MSG_RECV, self._on_message_received
             )
+
+            # Set up network event subscriptions for situational awareness
+            self._meshcore.subscribe(EventType.ADVERTISEMENT, self._on_network_event)
+            self._meshcore.subscribe(EventType.NEW_CONTACT, self._on_network_event)
+            self._meshcore.subscribe(EventType.PATH_UPDATE, self._on_network_event)
+            self._meshcore.subscribe(
+                EventType.NEIGHBOURS_RESPONSE, self._on_network_event
+            )
+            self._meshcore.subscribe(EventType.STATUS_RESPONSE, self._on_network_event)
+            logger.info("Subscribed to network events for situational awareness")
 
             # Get bot's own public key for message filtering
             try:
@@ -475,6 +500,103 @@ class RealMeshCoreInterface(MeshCoreInterface):
 
         except Exception as e:
             logger.error(f"Error processing message event: {e}")
+
+    async def _on_network_event(self, event) -> None:
+        """Handle network events (adverts, contacts, paths, etc.) for situational awareness."""
+        try:
+            import time
+
+            event_type = (
+                event.type.value if hasattr(event.type, "value") else str(event.type)
+            )
+            payload = event.payload if hasattr(event, "payload") else {}
+
+            # Format event for logging
+            timestamp = time.time()
+            event_info = f"{event_type}"
+
+            # Extract relevant info based on event type
+            if event_type == "advertisement":
+                sender = payload.get("pubkey_prefix", "unknown")
+                name = payload.get("adv_name", "")
+                event_info = f"ADVERT from {sender[:16]}"
+                if name:
+                    event_info += f" ({name})"
+            elif event_type == "new_contact":
+                pubkey = payload.get("public_key", "unknown")
+                name = payload.get("adv_name", "")
+                event_info = f"NEW_CONTACT {pubkey[:16]}"
+                if name:
+                    event_info += f" ({name})"
+            elif event_type == "path_update":
+                dest = payload.get("destination", "unknown")
+                hops = payload.get("hops", 0)
+                event_info = f"PATH_UPDATE to {dest[:16]} ({hops} hops)"
+            elif event_type == "neighbours_response":
+                count = len(payload.get("neighbours", []))
+                event_info = f"NEIGHBOURS {count} nodes"
+            elif event_type == "status_response":
+                from_node = payload.get("pubkey_prefix", "unknown")
+                event_info = f"STATUS from {from_node[:16]}"
+
+            # Log to file
+            log_line = f"{timestamp}|{event_info}"
+
+            # Append to file
+            with open(self._network_events_path, "a", encoding="utf-8") as f:
+                f.write(log_line + "\n")
+
+            # Trim file if too large
+            try:
+                with open(self._network_events_path, "r", encoding="utf-8") as f:
+                    lines = f.readlines()
+                if len(lines) > self._max_network_events:
+                    with open(self._network_events_path, "w", encoding="utf-8") as f:
+                        f.writelines(lines[-self._max_network_events :])
+            except:
+                pass  # If trimming fails, just continue
+
+            logger.debug(f"Network event logged: {event_info}")
+
+        except Exception as e:
+            logger.error(f"Error processing network event: {e}")
+
+    def get_recent_network_events(self, limit: int = 10) -> List[str]:
+        """Get recent network events for context."""
+        try:
+            if not self._network_events_path.exists():
+                return []
+
+            with open(self._network_events_path, "r", encoding="utf-8") as f:
+                lines = f.readlines()
+
+            # Get last N lines and format them
+            recent = lines[-limit:]
+            events = []
+            for line in recent:
+                try:
+                    timestamp_str, event_info = line.strip().split("|", 1)
+                    # Format timestamp to relative time
+                    import time
+
+                    timestamp = float(timestamp_str)
+                    age_seconds = time.time() - timestamp
+                    if age_seconds < 60:
+                        time_ago = f"{int(age_seconds)}s ago"
+                    elif age_seconds < 3600:
+                        time_ago = f"{int(age_seconds/60)}m ago"
+                    else:
+                        time_ago = f"{int(age_seconds/3600)}h ago"
+
+                    events.append(f"[{time_ago}] {event_info}")
+                except:
+                    continue
+
+            return events
+
+        except Exception as e:
+            logger.error(f"Error getting network events: {e}")
+            return []
 
 
 def create_meshcore_interface(

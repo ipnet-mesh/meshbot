@@ -715,18 +715,37 @@ class MeshBotAgent:
             # Create dependencies for this interaction
             deps = MeshBotDependencies(meshcore=self.meshcore, memory=self.memory)
 
-            # Build the prompt with conversation history
+            # Build the prompt with conversation history and network context
+            # Get recent network events for situational awareness
+            network_events = self.meshcore.get_recent_network_events(limit=5)
+
             if (
                 context and len(context) > 1
             ):  # Only include history if there's more than just current message
                 # Include previous context in the prompt (excluding the message we just added)
-                prompt = f"Conversation history:\n"
+                prompt = ""
+
+                # Add network events if available
+                if network_events:
+                    prompt += "Recent Network Activity:\n"
+                    for event in network_events:
+                        prompt += f"  {event}\n"
+                    prompt += "\n"
+
+                prompt += "Conversation history:\n"
                 for msg in context[:-1][-10:]:  # Last 10 messages, excluding current
                     role_name = "User" if msg["role"] == "user" else "Assistant"
                     prompt += f"{role_name}: {msg['content']}\n"
                 prompt += f"\nUser: {message.content}\nAssistant:"
             else:
-                prompt = message.content
+                # For first message, still include network events if available
+                if network_events:
+                    prompt = "Recent Network Activity:\n"
+                    for event in network_events:
+                        prompt += f"  {event}\n"
+                    prompt += f"\nUser: {message.content}\nAssistant:"
+                else:
+                    prompt = message.content
 
             # Run agent with conversation context
             # Limit API requests to prevent excessive costs
