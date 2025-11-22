@@ -207,4 +207,8 @@ marimo/_lsp/
 __marimo__/
 
 # MeshBot specific data files
+<<<<<<< HEAD
 logs/**
+=======
+logs
+>>>>>>> ebe25d04aa615ea491d6d5fb5975d633839973d0

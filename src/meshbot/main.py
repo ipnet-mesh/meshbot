@@ -14,7 +14,12 @@ from .config import MeshBotConfig, load_config
 
 def setup_logging(level: str = "INFO", log_file: Optional[Path] = None) -> None:
     """Setup logging configuration."""
-    log_level = getattr(logging, level.upper())
+    # Add custom TRACE level if not already defined
+    if not hasattr(logging, 'TRACE'):
+        logging.TRACE = 5
+        logging.addLevelName(logging.TRACE, 'TRACE')
+
+    log_level = getattr(logging, level.upper(), logging.INFO)
 
     # Configure basic logging
     handlers = []
@@ -67,7 +72,12 @@ def cli() -> None:
     "--memory-path", type=click.Path(path_type=Path), help="Memory storage file path"
 )
 @click.option(
-    "-v", "--verbose", count=True, help="Increase verbosity (-v for INFO, -vv for DEBUG)"
+    "--custom-prompt",
+    type=click.Path(exists=True, path_type=Path),
+    help="Path to custom prompt file",
+)
+@click.option(
+    "-v", "--verbose", count=True, help="Increase verbosity (-v for DEBUG, -vv for TRACE)"
 )
 @click.option(
     "--log-file", type=click.Path(path_type=Path), help="Log file path"
@@ -79,6 +89,7 @@ def run(
     meshcore_port: Optional[str],
     meshcore_host: Optional[str],
     memory_path: Optional[Path],
+    custom_prompt: Optional[Path],
     verbose: int,
     log_file: Optional[Path],
 ) -> None:
@@ -86,11 +97,11 @@ def run(
 
     # Determine log level from verbosity
     if verbose >= 2:
-        level = "DEBUG"
+        level = "TRACE"
     elif verbose == 1:
-        level = "INFO"
+        level = "DEBUG"
     else:
-        level = "WARNING"
+        level = "INFO"
 
     # Setup logging first
     setup_logging(level, log_file)
@@ -111,6 +122,8 @@ def run(
             app_config.meshcore.host = meshcore_host
         if memory_path:
             app_config.memory.storage_path = memory_path
+        if custom_prompt:
+            app_config.ai.custom_prompt_file = custom_prompt
 
     except Exception as e:
         logger.error(f"Error loading configuration: {e}")
@@ -204,10 +217,15 @@ async def run_agent(agent: MeshBotAgent) -> None:
 @click.option("--meshcore-port", help="Serial port for MeshCore connection")
 @click.option("--meshcore-host", help="TCP host for MeshCore connection")
 @click.option(
+    "--custom-prompt",
+    type=click.Path(exists=True, path_type=Path),
+    help="Path to custom prompt file",
+)
+@click.option(
     "-v",
     "--verbose",
     count=True,
-    help="Increase verbosity (-v for INFO, -vv for DEBUG)",
+    help="Increase verbosity (-v for DEBUG, -vv for TRACE)",
 )
 def test(
     from_id: str,
@@ -216,6 +234,7 @@ def test(
     meshcore_type: str,
     meshcore_port: Optional[str],
     meshcore_host: Optional[str],
+    custom_prompt: Optional[Path],
     verbose: int,
 ) -> None:
     """Send a test message simulating a message from FROM_ID.
@@ -226,11 +245,11 @@ def test(
 
     # Determine log level from verbosity
     if verbose >= 2:
-        level = "DEBUG"
+        level = "TRACE"
     elif verbose == 1:
-        level = "INFO"
+        level = "DEBUG"
     else:
-        level = "WARNING"
+        level = "INFO"
 
     # Load configuration
     try:
@@ -242,6 +261,8 @@ def test(
             app_config.meshcore.port = meshcore_port
         if meshcore_host:
             app_config.meshcore.host = meshcore_host
+        if custom_prompt:
+            app_config.ai.custom_prompt_file = custom_prompt
         app_config.logging.level = level
 
     except Exception as e:
