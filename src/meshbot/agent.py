@@ -71,6 +71,7 @@ class MeshBotAgent:
         self.meshcore: Optional[MeshCoreInterface] = None
         self.memory: Optional[MemoryManager] = None
         self.agent: Optional[Agent[MeshBotDependencies, AgentResponse]] = None
+        self._own_public_key: Optional[str] = None
 
         self._running = False
 
@@ -232,6 +233,14 @@ class MeshBotAgent:
         # Connect to MeshCore
         await self.meshcore.connect()
 
+        # Get bot's own public key for message filtering
+        try:
+            self._own_public_key = await self.meshcore.get_own_public_key()
+            if self._own_public_key:
+                logger.info(f"Bot will filter out messages from self: {self._own_public_key[:16]}...")
+        except Exception as e:
+            logger.warning(f"Could not retrieve own public key: {e}")
+
         # Sync companion node clock
         try:
             await self.meshcore.sync_time()
@@ -324,11 +333,22 @@ class MeshBotAgent:
         Determine if the bot should respond to this message.
 
         Rules:
+        - Never respond to messages from the bot itself
         - Always respond to DMs (direct messages)
         - For channel messages, only respond if:
           1. Message is on the configured listen_channel
           2. Message contains the activation_phrase
         """
+        # CRITICAL: Never respond to messages from the bot itself
+        # This prevents infinite loops where the bot responds to its own messages
+        if self._own_public_key and message.sender:
+            # Check if sender matches our own public key (could be full key or prefix)
+            if (message.sender == self._own_public_key or
+                message.sender.startswith(self._own_public_key[:16]) or
+                self._own_public_key.startswith(message.sender)):
+                logger.debug(f"Ignoring message from self: {message.sender}")
+                return False
+
         # Always respond to DMs
         if message.message_type == "direct":
             return True
