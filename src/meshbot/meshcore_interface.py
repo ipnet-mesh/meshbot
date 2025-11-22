@@ -310,6 +310,18 @@ class RealMeshCoreInterface(MeshCoreInterface):
     async def _on_message_received(self, event) -> None:
         """Handle incoming message events."""
         try:
+            # Debug: Log the event structure
+            logger.debug(f"Received event: {event}")
+            logger.debug(f"Event type: {type(event)}")
+            logger.debug(f"Event attributes: {dir(event)}")
+            logger.debug(f"Event payload: {event.payload if hasattr(event, 'payload') else 'No payload attr'}")
+
+            # Try to extract message data from event payload
+            if hasattr(event, 'payload'):
+                payload = event.payload
+                logger.debug(f"Payload type: {type(payload)}")
+                logger.debug(f"Payload content: {payload}")
+
             message = MeshCoreMessage(
                 sender=event.payload.get("sender", ""),
                 sender_name=event.payload.get("sender_name"),
