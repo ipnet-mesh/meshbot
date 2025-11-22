@@ -280,8 +280,23 @@ class RealMeshCoreInterface(MeshCoreInterface):
 
             # Get bot's own public key for message filtering
             try:
-                self._own_public_key = self._meshcore.public_key
-                logger.info(f"Bot public key: {self._own_public_key[:16]}...")
+                self_info = self._meshcore.self_info
+                if self_info and isinstance(self_info, dict):
+                    self._own_public_key = self_info.get("public_key") or self_info.get(
+                        "pubkey_prefix"
+                    )
+                    if self._own_public_key:
+                        logger.info(f"Bot public key: {self._own_public_key[:16]}...")
+                    else:
+                        logger.warning(
+                            "self_info does not contain public_key or pubkey_prefix"
+                        )
+                        self._own_public_key = None
+                else:
+                    logger.warning(
+                        f"self_info returned unexpected type: {type(self_info)}"
+                    )
+                    self._own_public_key = None
             except Exception as e:
                 logger.warning(f"Could not retrieve own public key: {e}")
                 self._own_public_key = None
@@ -323,11 +338,17 @@ class RealMeshCoreInterface(MeshCoreInterface):
         try:
             # Detect if destination is a channel (numeric string with 1-2 digits)
             # Channel IDs are typically 0-255
-            if destination.isdigit() and len(destination) <= 3 and int(destination) < 256:
+            if (
+                destination.isdigit()
+                and len(destination) <= 3
+                and int(destination) < 256
+            ):
                 # Send to channel
                 channel_id = int(destination)
                 logger.debug(f"Sending to channel {channel_id}")
-                result = await self._meshcore.commands.send_chan_msg(channel_id, message)
+                result = await self._meshcore.commands.send_chan_msg(
+                    channel_id, message
+                )
             else:
                 # Send direct message to contact (public key)
                 logger.debug(f"Sending direct message to {destination[:16]}...")
@@ -381,6 +402,7 @@ class RealMeshCoreInterface(MeshCoreInterface):
 
         try:
             import time
+
             logger.info("Syncing companion node clock to system time...")
             current_time = int(time.time())
             result = await self._meshcore.commands.set_time(current_time)
@@ -431,7 +453,11 @@ class RealMeshCoreInterface(MeshCoreInterface):
                 sender=sender,
                 sender_name=None,  # MeshCore doesn't provide name in message events
                 content=content,
-                timestamp=float(sender_timestamp) if sender_timestamp else asyncio.get_event_loop().time(),
+                timestamp=(
+                    float(sender_timestamp)
+                    if sender_timestamp
+                    else asyncio.get_event_loop().time()
+                ),
                 message_type=message_type,
                 channel=str(channel) if channel is not None else None,
             )
