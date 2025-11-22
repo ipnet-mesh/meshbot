@@ -231,9 +231,12 @@ class RealMeshCoreInterface(MeshCoreInterface):
             logger.info("Starting auto message fetching...")
             await self._meshcore.start_auto_message_fetching()
 
-            # Set up message event subscription
+            # Set up message event subscriptions
             self._meshcore.subscribe(
                 EventType.CONTACT_MSG_RECV, self._on_message_received
+            )
+            self._meshcore.subscribe(
+                EventType.CHANNEL_MSG_RECV, self._on_message_received
             )
 
             self._connected = True
