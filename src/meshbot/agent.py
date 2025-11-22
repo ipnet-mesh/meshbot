@@ -95,15 +95,13 @@ class MeshBotAgent:
             connection_type, **self.meshcore_kwargs
         )
 
-        # Initialize memory manager with base_url for OpenAI-compatible endpoints
+        # Initialize memory manager with simple message history
         self.memory = MemoryManager(
             storage_path=self.memory_path or Path("memory_metadata.json"),
-            base_url=self.base_url,
+            max_dm_history=100,  # Keep last 100 messages per DM
+            max_channel_history=1000,  # Keep last 1000 messages in channel
         )
         await self.memory.load()
-
-        # Enable Memori for automatic conversation memory
-        self.memory.enable_memori()
 
         # Build agent instructions
         base_instructions = (
@@ -308,14 +306,36 @@ class MeshBotAgent:
             if not self._should_respond_to_message(message):
                 return True  # Not an error, just filtered out
 
-            # Store message in memory
-            await self.memory.add_message(message, is_from_user=True)
+            # Store user message in memory
+            await self.memory.add_message(
+                user_id=message.sender,
+                role="user",
+                content=message.content,
+                message_type=message.message_type,
+                timestamp=message.timestamp,
+            )
+
+            # Get conversation context
+            context = await self.memory.get_conversation_context(
+                user_id=message.sender, message_type=message.message_type
+            )
 
             # Create dependencies for this interaction
             deps = MeshBotDependencies(meshcore=self.meshcore, memory=self.memory)
 
-            # Run agent (Memori will automatically inject conversation context)
-            result = await self.agent.run(message.content, deps=deps)
+            # Build the prompt with conversation history
+            if context:
+                # Include previous context in the prompt
+                prompt = f"Conversation history:\n"
+                for msg in context[-10:]:  # Last 10 messages for context
+                    role_name = "User" if msg["role"] == "user" else "Assistant"
+                    prompt += f"{role_name}: {msg['content']}\n"
+                prompt += f"\nUser: {message.content}\nAssistant:"
+            else:
+                prompt = message.content
+
+            # Run agent with conversation context
+            result = await self.agent.run(prompt, deps=deps)
 
             # Send response
             response = result.output.response
@@ -324,14 +344,13 @@ class MeshBotAgent:
                 await self.meshcore.send_message(message.sender, response)
 
                 # Store assistant response in memory
-                assistant_message = MeshCoreMessage(
-                    sender="meshbot",
-                    sender_name="MeshBot",
+                await self.memory.add_message(
+                    user_id=message.sender,
+                    role="assistant",
                     content=response,
+                    message_type=message.message_type,
                     timestamp=asyncio.get_event_loop().time(),
-                    message_type="direct",
                 )
-                await self.memory.add_message(assistant_message, is_from_user=False)
 
             # Handle any additional actions
             if result.output.action:

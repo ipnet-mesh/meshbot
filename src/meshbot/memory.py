@@ -1,19 +1,15 @@
-"""Memory management for MeshBot using Memori library."""
+"""Memory management for MeshBot with simple message history."""
 
 import asyncio
 import json
 import logging
-import os
-from dataclasses import dataclass
+from collections import deque
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, TYPE_CHECKING
+from typing import Any, Deque, Dict, List, Optional
 
 from meshbot.meshcore_interface import MeshCoreMessage
-
-# Lazy import Memori to avoid import-time blocking
-if TYPE_CHECKING:
-    from memori import ConfigManager, Memori
 
 logger = logging.getLogger(__name__)
 
@@ -37,13 +33,10 @@ class UserMemory:
     first_seen: Optional[float] = None
     last_seen: Optional[float] = None
     total_messages: int = 0
-    conversation_history: Optional[List[ConversationMessage]] = None
     preferences: Optional[Dict[str, Any]] = None
     context: Optional[Dict[str, Any]] = None  # Additional context about the user
 
     def __post_init__(self) -> None:
-        if self.conversation_history is None:
-            self.conversation_history = []
         if self.preferences is None:
             self.preferences = {}
         if self.context is None:
@@ -51,63 +44,43 @@ class UserMemory:
 
 
 class MemoryManager:
-    """Manages user memory using Memori library for conversation history."""
+    """Manages user memory and conversation history."""
 
     def __init__(
         self,
         storage_path: Optional[Path] = None,
-        database_url: Optional[str] = None,
-        openai_api_key: Optional[str] = None,
-        base_url: Optional[str] = None,
+        max_dm_history: int = 100,
+        max_channel_history: int = 1000,
     ):
         """
-        Initialize MemoryManager with Memori integration.
+        Initialize MemoryManager with simple message history.
 
         Args:
             storage_path: Path for storing user metadata (preferences, context)
-            database_url: Database connection string for Memori (default: SQLite)
-            openai_api_key: OpenAI API key for Memori (optional)
-            base_url: Base URL for OpenAI-compatible endpoints (optional)
+            max_dm_history: Maximum number of messages to keep per DM conversation
+            max_channel_history: Maximum number of messages to keep for channel history
         """
         self.storage_path = storage_path or Path("memory_metadata.json")
         self._metadata: Dict[str, UserMemory] = {}
         self._lock = asyncio.Lock()
         self._dirty = False
 
-        # Initialize Memori for conversation history
-        if database_url is None:
-            # Use SQLite by default in the same directory as metadata
-            db_path = self.storage_path.parent / "memori_conversations.db"
-            database_url = f"sqlite:///{db_path}"
+        # Message history buffers
+        self.max_dm_history = max_dm_history
+        self.max_channel_history = max_channel_history
 
-        # Get API key from environment if not provided
-        if openai_api_key is None:
-            openai_api_key = os.getenv("OPENAI_API_KEY")
+        # Per-user DM history (user_id -> deque of messages)
+        self._dm_history: Dict[str, Deque[ConversationMessage]] = {}
 
-        # Store Memori config but don't initialize yet (lazy loading)
-        # This avoids blocking on import
-        self.memori = None
-        self.memori_enabled = False
-        self._memori_config = None
+        # General channel history (deque of messages from all users)
+        self._channel_history: Deque[ConversationMessage] = deque(
+            maxlen=max_channel_history
+        )
 
-        if openai_api_key:
-            self._memori_config = {
-                "database_connect": database_url,
-                "conscious_ingest": True,  # Enable working memory
-                "auto_ingest": True,  # Enable dynamic search
-                "openai_api_key": openai_api_key,
-            }
-
-            # Add base_url if using OpenAI-compatible endpoint
-            if base_url:
-                self._memori_config["base_url"] = base_url
-
-            logger.debug("Memori configuration saved for lazy initialization")
-        else:
-            logger.info(
-                "No LLM API key provided, Memori features disabled. "
-                "Set LLM_API_KEY environment variable to enable memory features."
-            )
+        logger.info(
+            f"Memory manager initialized: {max_dm_history} messages per DM, "
+            f"{max_channel_history} messages in channel history"
+        )
 
     async def load(self) -> None:
         """Load user metadata from storage."""
@@ -124,8 +97,8 @@ class MemoryManager:
                         if memory_data.get("last_seen"):
                             memory_data["last_seen"] = float(memory_data["last_seen"])
 
-                        # Don't load conversation history - managed by Memori
-                        memory_data["conversation_history"] = []
+                        # Remove old conversation_history field if it exists
+                        memory_data.pop("conversation_history", None)
 
                         self._metadata[user_id] = UserMemory(**memory_data)
 
@@ -174,36 +147,78 @@ class MemoryManager:
             except Exception as e:
                 logger.error(f"Error saving metadata: {e}")
 
-    def enable_memori(self) -> None:
-        """Enable Memori memory interception for LLM calls."""
-        # Lazy initialization of Memori to avoid import-time blocking
-        if self._memori_config and not self.memori:
-            try:
-                logger.debug("Lazy loading Memori library...")
-                from memori import Memori
+    async def add_message(
+        self,
+        user_id: str,
+        role: str,
+        content: str,
+        message_type: str = "direct",
+        timestamp: Optional[float] = None,
+    ) -> None:
+        """
+        Add a message to conversation history.
 
-                logger.debug("Creating Memori instance...")
-                self.memori = Memori(**self._memori_config)
+        Args:
+            user_id: The user ID
+            role: "user" or "assistant"
+            content: The message content
+            message_type: "direct", "channel", or "broadcast"
+            timestamp: Message timestamp (defaults to current time)
+        """
+        if timestamp is None:
+            timestamp = asyncio.get_event_loop().time()
 
-                log_msg = f"Initialized Memori with database: {self._memori_config['database_connect']}"
-                if "base_url" in self._memori_config:
-                    log_msg += f" and custom endpoint: {self._memori_config['base_url']}"
-                logger.info(log_msg)
-            except Exception as e:
-                logger.warning(
-                    f"Failed to initialize Memori: {e}. Memory features disabled."
+        msg = ConversationMessage(
+            role=role, content=content, timestamp=timestamp, message_type=message_type
+        )
+
+        async with self._lock:
+            # Add to channel history if it's a channel message
+            if message_type == "channel":
+                self._channel_history.append(msg)
+                logger.debug(
+                    f"Added message to channel history ({len(self._channel_history)}/{self.max_channel_history})"
                 )
-                self.memori = None
-                self._memori_config = None
-                return
+            else:
+                # Add to DM history for this user
+                if user_id not in self._dm_history:
+                    self._dm_history[user_id] = deque(maxlen=self.max_dm_history)
 
-        if self.memori and not self.memori_enabled:
-            try:
-                self.memori.enable()
-                self.memori_enabled = True
-                logger.info("Memori memory system enabled")
-            except Exception as e:
-                logger.error(f"Failed to enable Memori: {e}")
+                self._dm_history[user_id].append(msg)
+                logger.debug(
+                    f"Added message to DM history for {user_id} "
+                    f"({len(self._dm_history[user_id])}/{self.max_dm_history})"
+                )
+
+    async def get_conversation_context(
+        self, user_id: str, message_type: str = "direct", max_messages: Optional[int] = None
+    ) -> List[Dict[str, str]]:
+        """
+        Get conversation context for the LLM.
+
+        Args:
+            user_id: The user ID
+            message_type: "direct" or "channel"
+            max_messages: Maximum messages to return (defaults to all available)
+
+        Returns:
+            List of message dicts with 'role' and 'content' keys
+        """
+        async with self._lock:
+            messages: List[ConversationMessage] = []
+
+            if message_type == "channel":
+                messages = list(self._channel_history)
+            else:
+                if user_id in self._dm_history:
+                    messages = list(self._dm_history[user_id])
+
+            # Apply max_messages limit if specified
+            if max_messages and len(messages) > max_messages:
+                messages = messages[-max_messages:]
+
+            # Convert to LLM format
+            return [{"role": msg.role, "content": msg.content} for msg in messages]
 
     async def get_user_memory(self, user_id: str) -> UserMemory:
         """Get or create memory for a user."""
@@ -237,62 +252,6 @@ class MemoryManager:
         memory.last_seen = current_time
         self._dirty = True
 
-    async def add_message(
-        self, message: MeshCoreMessage, is_from_user: bool = True
-    ) -> None:
-        """
-        Add a message to user's conversation history.
-
-        Note: Conversation history is managed by Memori automatically.
-        This method tracks metadata only.
-        """
-        async with self._lock:
-            # Get or create user memory
-            if message.sender not in self._metadata:
-                self._metadata[message.sender] = UserMemory(user_id=message.sender)
-                self._dirty = True
-
-            memory = self._metadata[message.sender]
-
-            # Update user info (inline to avoid lock issues)
-            if message.sender_name and message.sender_name != memory.user_name:
-                memory.user_name = message.sender_name
-                self._dirty = True
-
-            current_time = asyncio.get_event_loop().time()
-            if memory.first_seen is None:
-                memory.first_seen = current_time
-                self._dirty = True
-
-            memory.last_seen = current_time
-
-            # Increment message count
-            memory.total_messages += 1
-            self._dirty = True
-
-    async def get_conversation_history(
-        self, user_id: str, limit: Optional[int] = None
-    ) -> List[ConversationMessage]:
-        """
-        Get conversation history for a user.
-
-        Note: With Memori, conversation history is automatically injected
-        into LLM calls. This method returns an empty list as a placeholder
-        for backward compatibility.
-        """
-        # Memori handles conversation history automatically
-        # Return empty list for backward compatibility
-        return []
-
-    async def get_recent_context(self, user_id: str, max_messages: int = 10) -> str:
-        """
-        Get formatted recent conversation context for AI.
-
-        Note: With Memori enabled, context is automatically injected.
-        This returns a placeholder for backward compatibility.
-        """
-        # Memori handles context injection automatically
-        return ""
 
     async def set_user_preference(self, user_id: str, key: str, value: Any) -> None:
         """Set a user preference."""
