@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
-from pydantic_ai import Agent, RunContext
+from pydantic_ai import Agent
 
 from .memory import MemoryManager
 from .meshcore_interface import (
@@ -15,12 +15,6 @@ from .meshcore_interface import (
     MeshCoreMessage,
     create_meshcore_interface,
 )
-from .config import WeatherConfig
-
-try:
-    import aiohttp
-except ImportError:
-    aiohttp = None
 
 logger = logging.getLogger(__name__)
 
@@ -162,808 +156,14 @@ class MeshBotAgent:
         )
 
         # Register tools
-        self._register_tools()
+        from .tools import register_all_tools
+
+        register_all_tools(self.agent)
 
         # Set up message handler
         self.meshcore.add_message_handler(self._handle_message)
 
         logger.info("MeshBot agent initialized successfully")
-
-    def _register_tools(self) -> None:
-        """Register tools for the agent."""
-
-        @self.agent.tool
-        async def get_user_info(
-            ctx: RunContext[MeshBotDependencies], user_id: str
-        ) -> str:
-            """Get information about a user."""
-            logger.info(f"🔧 TOOL CALL: get_user_info(user_id='{user_id}')")
-            try:
-                memory = await ctx.deps.memory.get_user_memory(user_id)
-
-                info = f"User: {memory.get('user_name') or user_id}\n"
-                info += f"Total messages: {memory.get('total_messages', 0)}\n"
-                info += f"First seen: {memory.get('first_seen', 'Never')}\n"
-                info += f"Last seen: {memory.get('last_seen', 'Never')}\n"
-
-                logger.info(f"🔧 TOOL RESULT: get_user_info -> {len(info)} chars")
-                return info
-            except Exception as e:
-                logger.error(f"Error getting user info: {e}")
-                return "Error retrieving user information."
-
-        @self.agent.tool
-        async def status_request(
-            ctx: RunContext[MeshBotDependencies], destination: str
-        ) -> str:
-            """Send a status request to a MeshCore node (similar to ping)."""
-            logger.info(f"🔧 TOOL CALL: status_request(destination='{destination}')")
-            try:
-                # Use send_statusreq instead of ping (which doesn't exist)
-                # This will request status from the destination node
-                success = await ctx.deps.meshcore.ping_node(destination)
-                result = f"Status request to {destination}: {'Success' if success else 'Failed'}"
-                logger.info(f"🔧 TOOL RESULT: status_request -> {result}")
-                return result
-            except Exception as e:
-                logger.error(f"Error sending status request: {e}")
-                return f"Status request to {destination} failed"
-
-
-
-        @self.agent.tool
-        async def get_conversation_history(
-            ctx: RunContext[MeshBotDependencies], user_id: str, limit: int = 5
-        ) -> str:
-            """Get recent conversation history with a user."""
-            try:
-                history = await ctx.deps.memory.get_conversation_history(user_id, limit)
-                if not history:
-                    return "No conversation history with this user."
-
-                response = "Recent conversation:\n"
-                for msg in history:
-                    role = "User" if msg["role"] == "user" else "Assistant"
-                    response += f"{role}: {msg['content']}\n"
-
-                return response.strip()
-            except Exception as e:
-                logger.error(f"Error getting conversation history: {e}")
-                return "Error retrieving conversation history."
-
-        # Utility Tools
-        @self.agent.tool
-        async def calculate(
-            ctx: RunContext[MeshBotDependencies], expression: str
-        ) -> str:
-            """Evaluate a mathematical expression safely.
-
-            Args:
-                expression: Math expression to evaluate (e.g., "2 + 2", "sqrt(16)", "pi * 2")
-
-            Returns:
-                Result of the calculation or error message
-            """
-            try:
-                import math
-                import re
-
-                # Allow only safe characters (numbers, operators, math functions)
-                if not re.match(r"^[0-9+\-*/()., a-z]+$", expression.lower()):
-                    return (
-                        "Invalid expression. Use only numbers and basic math operators."
-                    )
-
-                # Create safe namespace with math functions
-                safe_dict = {
-                    "abs": abs,
-                    "round": round,
-                    "min": min,
-                    "max": max,
-                    "sum": sum,
-                    "pow": pow,
-                    "sqrt": math.sqrt,
-                    "pi": math.pi,
-                    "e": math.e,
-                    "sin": math.sin,
-                    "cos": math.cos,
-                    "tan": math.tan,
-                    "log": math.log,
-                    "log10": math.log10,
-                    "ceil": math.ceil,
-                    "floor": math.floor,
-                }
-
-                result = eval(expression, {"__builtins__": {}}, safe_dict)
-                return f"{expression} = {result}"
-            except ZeroDivisionError:
-                return "Error: Division by zero"
-            except Exception as e:
-                logger.error(f"Calculation error: {e}")
-                return f"Error calculating: {str(e)[:50]}"
-
-        @self.agent.tool
-        async def get_current_time(
-            ctx: RunContext[MeshBotDependencies], format: str = "human"
-        ) -> str:
-            """Get current date and time.
-
-            Args:
-                format: Output format - "human" (readable), "unix" (timestamp), or "iso" (ISO 8601)
-
-            Returns:
-                Current time in requested format
-            """
-            try:
-                from datetime import datetime
-
-                now = datetime.now()
-
-                if format == "unix":
-                    return f"Unix timestamp: {int(now.timestamp())}"
-                elif format == "iso":
-                    return f"ISO 8601: {now.isoformat()}"
-                else:  # human readable
-                    return now.strftime("%Y-%m-%d %H:%M:%S")
-            except Exception as e:
-                logger.error(f"Error getting time: {e}")
-                return "Error retrieving current time"
-
-        @self.agent.tool
-        async def search_history(
-            ctx: RunContext[MeshBotDependencies],
-            user_id: str,
-            keyword: str,
-            limit: int = 5,
-        ) -> str:
-            """Search conversation history for messages containing a keyword.
-
-            Args:
-                user_id: User/channel ID to search
-                keyword: Keyword to search for (case-insensitive)
-                limit: Maximum number of results to return
-
-            Returns:
-                Matching messages or no results message
-            """
-            try:
-                # Get full history
-                history = await ctx.deps.memory.get_conversation_history(
-                    user_id, limit=100
-                )
-
-                if not history:
-                    return f"No conversation history with {user_id}"
-
-                # Search for keyword (case-insensitive)
-                keyword_lower = keyword.lower()
-                matches = [
-                    msg for msg in history if keyword_lower in msg["content"].lower()
-                ][:limit]
-
-                if not matches:
-                    return f"No messages found containing '{keyword}'"
-
-                response = f"Found {len(matches)} message(s) with '{keyword}':\n"
-                for msg in matches:
-                    role = "User" if msg["role"] == "user" else "Assistant"
-                    content_preview = (
-                        msg["content"][:60] + "..."
-                        if len(msg["content"]) > 60
-                        else msg["content"]
-                    )
-                    response += f"{role}: {content_preview}\n"
-
-                return response.strip()
-            except Exception as e:
-                logger.error(f"Error searching history: {e}")
-                return "Error searching conversation history"
-
-        @self.agent.tool
-        async def get_bot_status(ctx: RunContext[MeshBotDependencies]) -> str:
-            """Get current bot status and statistics.
-
-            Returns:
-                Bot status information including uptime, memory stats, and connection status
-            """
-            logger.info(f"📊 TOOL CALL: get_bot_status()")
-            try:
-                # Get memory statistics
-                memory_stats = await ctx.deps.memory.get_statistics()
-
-                # Get connection status
-                is_connected = ctx.deps.meshcore.is_connected()
-
-                # Get contacts count
-                contacts = await ctx.deps.meshcore.get_contacts()
-                online_count = sum(1 for c in contacts if c.is_online)
-
-                status = (
-                    f"Bot Status:\n"
-                    f"Connected: {'Yes' if is_connected else 'No'}\n"
-                    f"Contacts: {online_count}/{len(contacts)} online\n"
-                    f"Total messages: {memory_stats.get('total_messages', 0)}\n"
-                    f"Users: {memory_stats.get('total_users', 0)}"
-                )
-
-                logger.info(f"📊 TOOL RESULT: get_bot_status -> {online_count}/{len(contacts)} contacts, {memory_stats.get('total_messages', 0)} messages")
-                return status
-            except Exception as e:
-                logger.error(f"Error getting bot status: {e}")
-                return "Error retrieving bot status"
-
-        # Fun/Interactive Tools
-        @self.agent.tool
-        async def roll_dice(
-            ctx: RunContext[MeshBotDependencies], count: int = 1, sides: int = 6
-        ) -> str:
-            """Roll dice and return the results.
-
-            Args:
-                count: Number of dice to roll (1-10)
-                sides: Number of sides per die (2-100)
-
-            Returns:
-                Dice roll results
-            """
-            try:
-                import random
-
-                # Validate inputs
-                if not 1 <= count <= 10:
-                    return "Please roll between 1 and 10 dice"
-                if not 2 <= sides <= 100:
-                    return "Dice must have between 2 and 100 sides"
-
-                rolls = [random.randint(1, sides) for _ in range(count)]
-                total = sum(rolls)
-
-                if count == 1:
-                    return f"Rolled 1d{sides}: {rolls[0]}"
-                else:
-                    rolls_str = ", ".join(map(str, rolls))
-                    return f"Rolled {count}d{sides}: [{rolls_str}] = {total}"
-            except Exception as e:
-                logger.error(f"Error rolling dice: {e}")
-                return "Error rolling dice"
-
-        @self.agent.tool
-        async def flip_coin(ctx: RunContext[MeshBotDependencies]) -> str:
-            """Flip a coin and return the result.
-
-            Returns:
-                Either "Heads" or "Tails"
-            """
-            try:
-                import random
-
-                result = random.choice(["Heads", "Tails"])
-                return f"Coin flip: {result}"
-            except Exception as e:
-                logger.error(f"Error flipping coin: {e}")
-                return "Error flipping coin"
-
-        @self.agent.tool
-        async def random_number(
-            ctx: RunContext[MeshBotDependencies],
-            min_value: int = 1,
-            max_value: int = 100,
-        ) -> str:
-            """Generate a random number within a range.
-
-            Args:
-                min_value: Minimum value (inclusive)
-                max_value: Maximum value (inclusive)
-
-            Returns:
-                Random number in the specified range
-            """
-            try:
-                import random
-
-                if min_value >= max_value:
-                    return "Min value must be less than max value"
-
-                if max_value - min_value > 1000000:
-                    return "Range too large (max 1 million)"
-
-                result = random.randint(min_value, max_value)
-                return f"Random number ({min_value}-{max_value}): {result}"
-            except Exception as e:
-                logger.error(f"Error generating random number: {e}")
-                return "Error generating random number"
-
-        @self.agent.tool
-        async def magic_8ball(
-            ctx: RunContext[MeshBotDependencies], question: str
-        ) -> str:
-            """Ask the magic 8-ball a yes/no question.
-
-            Args:
-                question: Your yes/no question
-
-            Returns:
-                Magic 8-ball response
-            """
-            try:
-                import random
-
-                responses = [
-                    # Positive
-                    "It is certain",
-                    "It is decidedly so",
-                    "Without a doubt",
-                    "Yes definitely",
-                    "You may rely on it",
-                    "As I see it, yes",
-                    "Most likely",
-                    "Outlook good",
-                    "Yes",
-                    "Signs point to yes",
-                    # Non-committal
-                    "Reply hazy, try again",
-                    "Ask again later",
-                    "Better not tell you now",
-                    "Cannot predict now",
-                    "Concentrate and ask again",
-                    # Negative
-                    "Don't count on it",
-                    "My reply is no",
-                    "My sources say no",
-                    "Outlook not so good",
-                    "Very doubtful",
-                ]
-
-                response = random.choice(responses)
-                return f"🎱 {response}"
-            except Exception as e:
-                logger.error(f"Error with magic 8-ball: {e}")
-                return "The magic 8-ball is cloudy"
-
-        # Query Tools for Historical Data
-        @self.agent.tool
-        async def search_network_events(
-            ctx: RunContext[MeshBotDependencies],
-            event_type: Optional[str] = None,
-            node_id: Optional[str] = None,
-            hours_ago: Optional[int] = None,
-            limit: int = 20,
-        ) -> str:
-            """Search historical network events (non-advertisement events) with filters.
-
-            Note: Use list_adverts() for advertisement events, use this for other
-            network events like PATH_UPDATE, STATUS_RESPONSE, etc.
-
-            Args:
-                event_type: Filter by event type (NEW_CONTACT, PATH_UPDATE, STATUS_RESPONSE, etc.)
-                node_id: Filter by node ID (partial match supported)
-                hours_ago: Only show events from last N hours
-                limit: Maximum number of results (default 20, max 50)
-
-            Returns:
-                Formatted list of matching network events
-            """
-            try:
-                import time
-
-                # Calculate timestamp filter if hours_ago is specified
-                since = None
-                if hours_ago is not None:
-                    since = time.time() - (hours_ago * 3600)
-
-                # Limit to max 50 results
-                limit = min(limit, 50)
-
-                # Query storage
-                events = await ctx.deps.memory.storage.search_network_events(
-                    event_type=event_type,
-                    node_id=node_id,
-                    since=since,
-                    limit=limit,
-                )
-
-                if not events:
-                    filters = []
-                    if event_type:
-                        filters.append(f"type={event_type}")
-                    if node_id:
-                        filters.append(f"node={node_id}")
-                    if hours_ago:
-                        filters.append(f"last {hours_ago}h")
-                    filter_str = " with " + ", ".join(filters) if filters else ""
-                    return f"No network events found{filter_str}"
-
-                # Format results
-                from datetime import datetime
-
-                result = f"Found {len(events)} network event(s):\n"
-                for event in events:
-                    timestamp = datetime.fromtimestamp(event["timestamp"])
-                    time_str = timestamp.strftime("%Y-%m-%d %H:%M:%S")
-                    details = event["details"] or event["event_type"]
-                    result += f"[{time_str}] {details}\n"
-
-                return result.strip()
-
-            except Exception as e:
-                logger.error(f"Error searching network events: {e}")
-                return "Error searching network events"
-
-        @self.agent.tool
-        async def search_all_messages(
-            ctx: RunContext[MeshBotDependencies],
-            keyword: str,
-            hours_ago: Optional[int] = None,
-            limit: int = 20,
-        ) -> str:
-            """Search messages across all conversations.
-
-            Args:
-                keyword: Keyword to search for (case-insensitive)
-                hours_ago: Only show messages from last N hours
-                limit: Maximum number of results (default 20, max 50)
-
-            Returns:
-                Formatted list of matching messages
-            """
-            try:
-                import time
-
-                # Calculate timestamp filter if hours_ago is specified
-                since = None
-                if hours_ago is not None:
-                    since = time.time() - (hours_ago * 3600)
-
-                # Limit to max 50 results
-                limit = min(limit, 50)
-
-                # Query storage
-                messages = await ctx.deps.memory.storage.search_messages(
-                    keyword=keyword,
-                    since=since,
-                    limit=limit,
-                )
-
-                if not messages:
-                    time_filter = f" in last {hours_ago}h" if hours_ago else ""
-                    return f"No messages found containing '{keyword}'{time_filter}"
-
-                # Format results
-                from datetime import datetime
-
-                result = f"Found {len(messages)} message(s) with '{keyword}':\n"
-                for msg in messages:
-                    timestamp = datetime.fromtimestamp(msg["timestamp"])
-                    time_str = timestamp.strftime("%Y-%m-%d %H:%M")
-                    role = "User" if msg["role"] == "user" else "Bot"
-                    content_preview = (
-                        msg["content"][:60] + "..."
-                        if len(msg["content"]) > 60
-                        else msg["content"]
-                    )
-                    result += f"[{time_str}] {role}: {content_preview}\n"
-
-                return result.strip()
-
-            except Exception as e:
-                logger.error(f"Error searching messages: {e}")
-                return "Error searching messages"
-
-        @self.agent.tool
-        async def list_adverts(
-            ctx: RunContext[MeshBotDependencies],
-            node_id: Optional[str] = None,
-            hours_ago: Optional[int] = None,
-            limit: int = 20,
-        ) -> str:
-            """List advertisement history with filters.
-
-            Advertisements are announcements from mesh nodes advertising their presence.
-            This tool searches the historical log of all advertisements received.
-
-            Args:
-                node_id: Filter by node ID (partial match supported, e.g., first 8 chars)
-                hours_ago: Only show adverts from last N hours
-                limit: Maximum number of results (default 20, max 50)
-
-            Returns:
-                Formatted list of matching advertisements
-            """
-            try:
-                import time
-
-                # Calculate timestamp filter if hours_ago is specified
-                since = None
-                if hours_ago is not None:
-                    since = time.time() - (hours_ago * 3600)
-
-                # Limit to max 50 results
-                limit = min(limit, 50)
-
-                # Query storage
-                adverts = await ctx.deps.memory.storage.search_adverts(
-                    node_id=node_id,
-                    since=since,
-                    limit=limit,
-                )
-
-                if not adverts:
-                    filters = []
-                    if node_id:
-                        filters.append(f"node={node_id}")
-                    if hours_ago:
-                        filters.append(f"last {hours_ago}h")
-                    filter_str = " with " + ", ".join(filters) if filters else ""
-                    return f"No advertisements found{filter_str}"
-
-                # Format results
-                from datetime import datetime
-
-                result = f"Found {len(adverts)} advertisement(s):\n"
-                for advert in adverts:
-                    timestamp = datetime.fromtimestamp(advert["timestamp"])
-                    time_str = timestamp.strftime("%Y-%m-%d %H:%M:%S")
-                    node_display = advert["node_id"][:16] if advert["node_id"] else "unknown"
-                    name = f" ({advert['node_name']})" if advert["node_name"] else ""
-                    result += f"[{time_str}] {node_display}{name}\n"
-
-                return result.strip()
-
-            except Exception as e:
-                logger.error(f"Error searching adverts: {e}")
-                return "Error searching advertisements"
-
-        @self.agent.tool
-        async def get_weather(
-            ctx: RunContext[MeshBotDependencies], 
-            location: str = "current",
-            latitude: Optional[float] = None,
-            longitude: Optional[float] = None,
-            forecast_days: int = 3
-        ) -> str:
-            """Get weather forecast using Open-Meteo API.
-
-            Args:
-                location: Location name (default: current location from env vars)
-                latitude: Latitude override (default: from env var)
-                longitude: Longitude override (default: from env var)
-                forecast_days: Number of forecast days (default: 3)
-
-            Returns:
-                Concise weather summary with forecast
-            """
-            """Get weather forecast using Open-Meteo API.
-
-            Args:
-                location: Location name (default: current location from env vars)
-                latitude: Latitude override (default: from env var)
-                longitude: Longitude override (default: from env var)
-                forecast_days: Number of forecast days (default: 3)
-
-            Returns:
-                Concise weather summary with forecast
-            """
-            logger.info(f"🌤️ TOOL CALL: get_weather(location='{location}', lat={latitude}, lon={longitude}, days={forecast_days})")
-            try:
-                import os
-                import json
-                
-                # Check if aiohttp is available
-                if not aiohttp:
-                    return "Weather service unavailable (aiohttp not installed)"
-                
-                # Get coordinates from parameters or environment
-                if latitude is not None and longitude is not None:
-                    lat, lon = latitude, longitude
-                elif location == "current":
-                    # Try to get coordinates from environment variables
-                    lat = float(os.getenv("WEATHER_LATITUDE", "51.5074"))  # Default to London
-                    lon = float(os.getenv("WEATHER_LONGITUDE", "-0.1278"))  # Default to London
-                else:
-                    # For named locations, use predefined coordinates
-                    locations = {
-                        "london": (51.5074, -0.1278),
-                        "manchester": (53.4808, -2.2426),
-                        "cambridge": (52.2053, 0.1218),
-                        "birmingham": (52.4862, -1.8904),
-                        "glasgow": (55.8642, -4.2518),
-                        "liverpool": (53.4084, -2.9916),
-                        "leeds": (53.7966, -1.7532),
-                        "sheffield": (53.3811, -1.4701),
-                        "bristol": (51.4545, -2.5879),
-                        "cardiff": (51.4816, -3.1791),
-                        "belfast": (54.5970, -5.9300),
-                        "newcastle": (54.9783, -1.6174),
-                        "nottingham": (52.9508, -1.1438),
-                        "leicester": (52.6369, -1.0979),
-                        "coventry": (52.4068, -1.5120),
-                        "southampton": (50.9097, -1.4044),
-                        "portsmouth": (50.7957, -1.1077),
-                        "reading": (51.4543, -0.9781),
-                        "oxford": (51.7520, -1.2577),
-                        "brighton": (50.8288, -0.1346),
-                        "southampton": (50.9097, -1.4044),
-                        "ipswich": (52.0597, 1.1455),
-                    }
-                    
-                    location_key = location.lower().replace(" ", "")
-                    if location_key in locations:
-                        lat, lon = locations[location_key]
-                    else:
-                        return f"Unknown location: {location}. Available: {', '.join(locations.keys())}"
-
-                # Get forecast days from environment or parameter
-                days = int(os.getenv("WEATHER_FORECAST_DAYS", str(forecast_days)))
-                
-                # Build Open-Meteo API URL
-                url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&forecast_days={days}&hourly=temperature_2m,precipitation_probability,wind_speed_10m"
-                logger.info(f"🌐 Open-Meteo API request: {url}")
-                
-                # Make HTTP request
-                try:
-                    logger.info(f"🌐 Creating aiohttp session...")
-                    async with aiohttp.ClientSession() as session:
-                        logger.info(f"🌐 Making HTTP request to: {url}")
-                        async with session.get(url, timeout=15) as response:
-                            logger.info(f"🌐 HTTP response status: {response.status}")
-                            if response.status == 200:
-                                data = await response.json()
-                                logger.info(f"🌐 Open-Meteo response received: {len(str(data))} chars")
-                            
-                            # Extract forecast data
-                            if not data or "forecast" not in data:
-                                logger.error(f"🌐 No forecast field in response: {data}")
-                                return "Weather forecast data unavailable"
-                            
-                            forecast_data = data["forecast"]
-                            if not forecast_data:
-                                logger.error(f"🌐 No forecast data in response: {data}")
-                                return "No forecast data available"
-                            
-                            # Process current weather and forecast
-                            current = forecast_data[0] if forecast_data else {}
-                            temp_current = current.get("temperature", {}).get("celsius", "N/A")
-                            wind_current = current.get("wind", {}).get("speed", {}).get("10m", 0) * 2.237  # Convert m/s to mph
-                            precip_prob = current.get("precipitation", {}).get("probability", {}).get("12h", 0) * 100
-                            
-                            # Build forecast summary
-                            forecast_summary = ""
-                            for day_data in forecast_data[1:days+1]:
-                                day_temp = day_data.get("temperature", {}).get("celsius", "N/A")
-                                day_precip = day_data.get("precipitation", {}).get("probability", {}).get("12h", 0) * 100
-                                day_wind = day_data.get("wind", {}).get("speed", {}).get("10m", 0) * 2.237
-                                date = day_data.get("date", "Unknown")
-                                
-                                if date != "Unknown":
-                                    forecast_summary += f"{date}: {day_temp}°C, {day_precip:.0f}% rain, {day_wind:.1f}mph\n"
-                            
-                            # Format result
-                            result = (
-                                f"Weather for {location.replace('_', ' ').title()}:\n"
-                                f"🌡 {temp_current}°C\n"
-                                f"💨 {wind_current:.1f}mph\n"
-                                f"🌧️ {precip_prob:.0f}% rain chance\n"
-                                f"📅 {days}-day forecast:\n{forecast_summary}"
-                            )
-                            
-                            return result.strip()
-                except Exception as http_err:
-                    logger.error(f"🌐 HTTP request failed: {http_err}")
-                    return "Weather service unavailable (HTTP error)"            
-                logger.info(f"🌤️ TOOL RESULT: get_weather -> {len(result)} chars")
-                return result
-                
-            except Exception as e:
-                logger.error(f"Error getting weather: {e}")
-                return "Weather information unavailable"
-
-        @self.agent.tool
-        async def get_node_info(
-            ctx: RunContext[MeshBotDependencies], node_id: str
-        ) -> str:
-            """Get detailed information about a specific mesh node.
-
-            Args:
-                node_id: Node public key (can be partial, e.g., first 8-16 characters)
-
-            Returns:
-                Node information including name, status, activity times, and statistics
-            """
-            try:
-                # Try exact match first
-                node = await ctx.deps.memory.storage.get_node(node_id)
-
-                # If not found, try to find by partial match
-                if not node:
-                    all_nodes = await ctx.deps.memory.storage.list_nodes(limit=100)
-                    for n in all_nodes:
-                        if n["pubkey"].startswith(node_id):
-                            node = n
-                            break
-
-                if not node:
-                    return f"Node not found: {node_id}"
-
-                # Format node information
-                from datetime import datetime
-
-                result = f"Node: {node['pubkey'][:16]}...\n"
-                if node["name"]:
-                    result += f"Name: {node['name']}\n"
-                result += f"Status: {'Online' if node['is_online'] else 'Offline'}\n"
-
-                first_seen = datetime.fromtimestamp(node["first_seen"])
-                last_seen = datetime.fromtimestamp(node["last_seen"])
-                result += f"First seen: {first_seen.strftime('%Y-%m-%d %H:%M')}\n"
-                result += f"Last seen: {last_seen.strftime('%Y-%m-%d %H:%M')}\n"
-
-                if node["last_advert"]:
-                    last_advert = datetime.fromtimestamp(node["last_advert"])
-                    result += f"Last advert: {last_advert.strftime('%Y-%m-%d %H:%M')}\n"
-
-                result += f"Total adverts: {node['total_adverts']}"
-
-                return result
-
-            except Exception as e:
-                logger.error(f"Error getting node info: {e}")
-                return "Error retrieving node information"
-
-        @self.agent.tool
-        async def list_nodes(
-            ctx: RunContext[MeshBotDependencies],
-            online_only: bool = False,
-            has_name: bool = False,
-            limit: int = 20,
-        ) -> str:
-            """List known mesh nodes with optional filters.
-
-            Args:
-                online_only: Only show nodes currently online (default: False)
-                has_name: Only show nodes with friendly names (default: False)
-                limit: Maximum number of nodes to return (default 20, max 50)
-
-            Returns:
-                Formatted list of nodes
-            """
-            try:
-                # Limit to max 50 results
-                limit = min(limit, 50)
-
-                # Query storage
-                nodes = await ctx.deps.memory.storage.list_nodes(
-                    online_only=online_only,
-                    has_name=has_name,
-                    limit=limit,
-                )
-
-                if not nodes:
-                    filters = []
-                    if online_only:
-                        filters.append("online")
-                    if has_name:
-                        filters.append("named")
-                    filter_str = " (" + ", ".join(filters) + ")" if filters else ""
-                    return f"No nodes found{filter_str}"
-
-                # Format results
-                from datetime import datetime
-
-                result = f"Found {len(nodes)} node(s):\n"
-                for node in nodes:
-                    status = "🟢" if node["is_online"] else "🔴"
-                    node_id = node["pubkey"][:16]
-                    name = f" ({node['name']})" if node["name"] else ""
-                    last_seen = datetime.fromtimestamp(node["last_seen"])
-                    time_str = last_seen.strftime("%Y-%m-%d %H:%M")
-                    adverts = f", {node['total_adverts']} adverts" if node["total_adverts"] > 0 else ""
-                    result += f"{status} {node_id}{name} - last seen {time_str}{adverts}\n"
-
-                return result.strip()
-
-            except Exception as e:
-                logger.error(f"Error listing nodes: {e}")
-                return "Error listing nodes"
 
     async def start(self) -> None:
         """Start the agent."""
@@ -1066,9 +266,9 @@ class MeshBotAgent:
         """
         # Normalize whitespace but preserve intentional newlines for formatting
         # Replace multiple newlines with single ones, and clean up extra spaces
-        lines = message.strip().split('\n')
-        cleaned_lines = [' '.join(line.split()) for line in lines]
-        message = '\n'.join(cleaned_lines)
+        lines = message.strip().split("\n")
+        cleaned_lines = [" ".join(line.split()) for line in lines]
+        message = "\n".join(cleaned_lines)
 
         # If message fits, return as-is
         if len(message) <= self.max_message_length:
@@ -1120,8 +320,12 @@ class MeshBotAgent:
           1. Message is on the configured listen_channel
           2. Message mentions the bot's node name (e.g., @NodeName)
         """
-        logger.debug(f"Checking response for message: sender={message.sender}, type={message.message_type}, channel={getattr(message, 'channel', None)}, content='{message.content}'")
-        logger.debug(f"Bot config: own_key={self._own_public_key}, mention_name={self._mention_name}, listen_channel={self.listen_channel}")
+        logger.debug(
+            f"Checking response for message: sender={message.sender}, type={message.message_type}, channel={getattr(message, 'channel', None)}, content='{message.content}'"
+        )
+        logger.debug(
+            f"Bot config: own_key={self._own_public_key}, mention_name={self._mention_name}, listen_channel={self.listen_channel}"
+        )
 
         # CRITICAL: Never respond to messages from the bot itself
         # This prevents infinite loops where the bot responds to its own messages
@@ -1146,7 +350,9 @@ class MeshBotAgent:
             # Handle both string channel names and numeric IDs
             message_channel = str(getattr(message, "channel", "0"))
             if message_channel != self.listen_channel:
-                logger.debug(f"Channel message not on listen channel {self.listen_channel}: {message_channel}")
+                logger.debug(
+                    f"Channel message not on listen channel {self.listen_channel}: {message_channel}"
+                )
                 return False
 
             # If we don't have a mention name (node name not set), don't respond to channel messages
@@ -1161,7 +367,9 @@ class MeshBotAgent:
             content_lower = message.content.lower()
             mention_lower = self._mention_name.lower()
 
-            logger.debug(f"Checking for mention: '{mention_lower}' in '{content_lower}'")
+            logger.debug(
+                f"Checking for mention: '{mention_lower}' in '{content_lower}'"
+            )
 
             # Direct match
             if mention_lower in content_lower:
@@ -1198,7 +406,7 @@ class MeshBotAgent:
             True if message was handled successfully, False otherwise
         """
         try:
-            logger.info(f"=== MESSAGE RECEIVED ===")
+            logger.info("=== MESSAGE RECEIVED ===")
             logger.info(f"From: {message.sender}")
             logger.info(f"Content: '{message.content}'")
             logger.info(f"Type: {message.message_type}")
@@ -1264,16 +472,18 @@ class MeshBotAgent:
             usage_limits = UsageLimits(
                 request_limit=20,  # Increased to 20 for more complex requests
             )
-            
+
             # Log the full prompt being sent to LLM
             logger.info("=== SENDING PROMPT TO LLM ===")
             logger.info(f"Prompt: {prompt}")
             logger.info(f"Context length: {len(prompt)} characters")
             logger.info("=== END PROMPT ===")
-            
+
             try:
-                result = await self.agent.run(prompt, deps=deps, usage_limits=usage_limits)
-                logger.info(f"✅ LLM run completed successfully")
+                result = await self.agent.run(
+                    prompt, deps=deps, usage_limits=usage_limits
+                )
+                logger.info("✅ LLM run completed successfully")
             except Exception as e:
                 logger.error(f"❌ LLM run failed: {e}")
                 raise
@@ -1285,7 +495,7 @@ class MeshBotAgent:
             logger.info(f"Response text: {response}")
             logger.info(f"Confidence: {result.output.confidence}")
             logger.info("=== END LLM RESPONSE ===")
-            
+
             if response:
                 # Determine destination based on message type
                 if message.message_type == "channel":
@@ -1349,7 +559,7 @@ class MeshBotAgent:
                         "Sorry, that query is too complex. Please try a simpler question or break it into smaller parts.",
                     )
                     return True  # Handled gracefully
-                except:
+                except Exception:
                     pass
 
             # Check for common API errors and provide helpful messages
@@ -1372,7 +582,7 @@ class MeshBotAgent:
                         message.sender,
                         "Sorry, I encountered an error processing your message.",
                     )
-                except:
+                except Exception:
                     pass
 
             # Re-raise in test mode
@@ -1412,28 +622,7 @@ class MeshBotAgent:
 
             return success
         except Exception as e:
-            error_msg = str(e)
-            logger.error(f"Error handling message: {error_msg}", exc_info=True)
-            
-            # Detect tool-calling loop and provide fallback response
-            if "request_limit" in error_msg or "exceed" in error_msg.lower():
-                logger.warning("🔄 Tool-calling loop detected - providing fallback response")
-                try:
-                    # Send a simple direct response without tools
-                    fallback_response = "Sorry, I had trouble processing that. How can I help you?"
-                    if message.message_type == "channel":
-                        destination = message.channel or "0"
-                    else:
-                        destination = message.sender
-                    
-                    await self.meshcore.send_message(destination, fallback_response)
-                    logger.info(f"✅ Fallback response sent: {fallback_response}")
-                    return True
-                except Exception as fallback_error:
-                    logger.error(f"Fallback response failed: {fallback_error}")
-            
-            if raise_errors:
-                raise
+            logger.error(f"Error sending message: {e}")
             return False
 
     async def get_status(self) -> Dict[str, Any]:
