@@ -349,7 +349,7 @@ class RealMeshCoreInterface(MeshCoreInterface):
             try:
                 self_info = self._meshcore.self_info
                 logger.debug(f"self_info type: {type(self_info)}, value: {self_info}")
-                
+
                 # Handle different possible types of self_info
                 if self_info is None:
                     logger.warning("self_info is None")
@@ -373,11 +373,13 @@ class RealMeshCoreInterface(MeshCoreInterface):
                         logger.info(f"Bot node name: {self._own_node_name}")
                     else:
                         logger.info("Bot node name not set (adv_name not in self_info)")
-                elif hasattr(self_info, '__dict__'):
+                elif hasattr(self_info, "__dict__"):
                     # Handle object with attributes
-                    self._own_public_key = getattr(self_info, "public_key", None) or getattr(self_info, "pubkey_prefix", None)
+                    self._own_public_key = getattr(
+                        self_info, "public_key", None
+                    ) or getattr(self_info, "pubkey_prefix", None)
                     self._own_node_name = getattr(self_info, "adv_name", None)
-                    
+
                     if self._own_public_key:
                         logger.info(f"Bot public key: {self._own_public_key[:16]}...")
                     if self._own_node_name:
@@ -389,15 +391,20 @@ class RealMeshCoreInterface(MeshCoreInterface):
                     # Try to extract from string representation
                     if isinstance(self_info, str):
                         import re
-                        pubkey_match = re.search(r'public_key[\'":\s]*([a-fA-F0-9]+)', self_info)
+
+                        pubkey_match = re.search(
+                            r'public_key[\'":\s]*([a-fA-F0-9]+)', self_info
+                        )
                         if pubkey_match:
                             self._own_public_key = pubkey_match.group(1)
-                            logger.info(f"Extracted public key from string: {self._own_public_key[:16] if self._own_public_key else 'None'}...")
+                            logger.info(
+                                f"Extracted public key from string: {self._own_public_key[:16] if self._own_public_key else 'None'}..."
+                            )
                         else:
                             self._own_public_key = None
                     else:
                         self._own_public_key = None
-                    
+
                     self._own_node_name = None
             except Exception as e:
                 logger.warning(f"Could not retrieve self info: {e}")
@@ -590,7 +597,9 @@ class RealMeshCoreInterface(MeshCoreInterface):
             msg_type = payload.get("type", "PRIV")
             channel = payload.get("channel", "0")  # Extract channel ID
 
-            logger.info(f"Processing message: sender={sender}, content='{content}', type={msg_type}, channel={channel}")
+            logger.info(
+                f"Processing message: sender={sender}, content='{content}', type={msg_type}, channel={channel}"
+            )
 
             # Map MeshCore message types to our types
             message_type = "direct" if msg_type == "PRIV" else "channel"

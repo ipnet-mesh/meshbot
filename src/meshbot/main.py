@@ -474,7 +474,9 @@ def test(
 )
 @click.option(
     "--table",
-    type=click.Choice(["all", "messages", "adverts", "nodes", "network_events", "node_names"]),
+    type=click.Choice(
+        ["all", "messages", "adverts", "nodes", "network_events", "node_names"]
+    ),
     default="all",
     help="Which table(s) to dump (default: all)",
 )
@@ -500,7 +502,13 @@ def dump(db_path: Path, table: str, limit: int) -> None:
         # Determine which tables to dump
         tables_to_dump = []
         if table == "all":
-            tables_to_dump = ["messages", "adverts", "nodes", "network_events", "node_names"]
+            tables_to_dump = [
+                "messages",
+                "adverts",
+                "nodes",
+                "network_events",
+                "node_names",
+            ]
         else:
             tables_to_dump = [table]
 
@@ -570,7 +578,9 @@ def dump(db_path: Path, table: str, limit: int) -> None:
                     click.echo(f"[{ts}] {node_id}{node_name} {details}")
 
             elif table_name == "nodes":
-                click.echo("\nFormat: PUBKEY (NAME) STATUS | FIRST_SEEN -> LAST_SEEN | ADVERTS")
+                click.echo(
+                    "\nFormat: PUBKEY (NAME) STATUS | FIRST_SEEN -> LAST_SEEN | ADVERTS"
+                )
                 click.echo("-" * 80)
                 for row in rows:
                     pubkey = (
@@ -580,10 +590,16 @@ def dump(db_path: Path, table: str, limit: int) -> None:
                     )
                     name = f" ({row['name']})" if row["name"] else ""
                     status = "🟢" if row["is_online"] else "🔴"
-                    first_seen = datetime.fromtimestamp(row["first_seen"]).strftime("%Y-%m-%d %H:%M")
-                    last_seen = datetime.fromtimestamp(row["last_seen"]).strftime("%Y-%m-%d %H:%M")
+                    first_seen = datetime.fromtimestamp(row["first_seen"]).strftime(
+                        "%Y-%m-%d %H:%M"
+                    )
+                    last_seen = datetime.fromtimestamp(row["last_seen"]).strftime(
+                        "%Y-%m-%d %H:%M"
+                    )
                     total_adverts = row["total_adverts"]
-                    click.echo(f"{pubkey}{name} {status} | {first_seen} -> {last_seen} | {total_adverts} adverts")
+                    click.echo(
+                        f"{pubkey}{name} {status} | {first_seen} -> {last_seen} | {total_adverts} adverts"
+                    )
 
             elif table_name == "network_events":
                 click.echo("\nFormat: [TIMESTAMP] TYPE: DETAILS")

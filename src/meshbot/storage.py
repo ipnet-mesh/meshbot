@@ -690,7 +690,9 @@ class MeshBotStorage:
             logger.error(f"Error upserting node: {e}")
             raise
 
-    async def update_node_advert_count(self, pubkey: str, timestamp: Optional[float] = None) -> None:
+    async def update_node_advert_count(
+        self, pubkey: str, timestamp: Optional[float] = None
+    ) -> None:
         """
         Increment advert count and update last_advert timestamp for a node.
 
@@ -855,7 +857,9 @@ class MeshBotStorage:
             )
 
             # Update node registry (upsert)
-            await self.upsert_node(node_id, name=node_name, is_online=True, timestamp=timestamp)
+            await self.upsert_node(
+                node_id, name=node_name, is_online=True, timestamp=timestamp
+            )
             await self.update_node_advert_count(node_id, timestamp)
 
             self.conn.commit()

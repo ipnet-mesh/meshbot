@@ -85,10 +85,14 @@ class WeatherConfig:
     """Configuration for weather service."""
 
     latitude: Optional[float] = field(
-        default_factory=lambda: float(os.getenv("WEATHER_LATITUDE")) if os.getenv("WEATHER_LATITUDE") else None
+        default_factory=lambda: float(os.getenv("WEATHER_LATITUDE"))
+        if os.getenv("WEATHER_LATITUDE")
+        else None
     )
     longitude: Optional[float] = field(
-        default_factory=lambda: float(os.getenv("WEATHER_LONGITUDE")) if os.getenv("WEATHER_LONGITUDE") else None
+        default_factory=lambda: float(os.getenv("WEATHER_LONGITUDE"))
+        if os.getenv("WEATHER_LONGITUDE")
+        else None
     )
     forecast_days: int = field(
         default_factory=lambda: int(os.getenv("WEATHER_FORECAST_DAYS", "3"))

@@ -1,5 +1,5 @@
 # Minimal Alpine-based Dockerfile for MeshBot
-FROM python:3.11-alpine
+FROM python:3.12-alpine
 
 # Install build dependencies (needed for some Python packages)
 RUN apk add --no-cache \

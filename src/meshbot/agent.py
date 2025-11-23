@@ -66,9 +66,9 @@ class MeshBotAgent:
         self.max_message_length = max_message_length
         self.node_name = node_name
         self.meshcore_kwargs = meshcore_kwargs
-        self._mention_name: Optional[str] = (
-            None  # Will be set to @nodename after initialization
-        )
+        self._mention_name: Optional[
+            str
+        ] = None  # Will be set to @nodename after initialization
 
         # Initialize components
         self.meshcore: Optional[MeshCoreInterface] = None

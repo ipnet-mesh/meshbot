@@ -25,7 +25,7 @@ def register_weather_tool(agent: Any) -> None:
         ctx: RunContext[Any],
         latitude: Optional[float] = None,
         longitude: Optional[float] = None,
-        forecast_days: int = 3,
+        forecast_days: int = 1,
     ) -> str:
         """Get weather forecast using Open-Meteo API.
 
@@ -35,7 +35,7 @@ def register_weather_tool(agent: Any) -> None:
         Args:
             latitude: Latitude coordinate (default: from WEATHER_LATITUDE env var)
             longitude: Longitude coordinate (default: from WEATHER_LONGITUDE env var)
-            forecast_days: Number of forecast days (default: 3)
+            forecast_days: Number of forecast days (default: 1)
 
         Returns:
             Concise weather summary with forecast
@@ -142,5 +142,5 @@ def register_weather_tool(agent: Any) -> None:
                 return "Weather service unavailable. Please try again later."
 
         except Exception as e:
-            logger.error(f"Error getting weather: {e}")
+            logger.info(f"Error getting weather: {e}")
             return "Weather information unavailable"
