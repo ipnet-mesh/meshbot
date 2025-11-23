@@ -691,10 +691,25 @@ class MeshBotAgent:
                 return False
 
             # Check for activation phrase (case-insensitive)
-            if self.activation_phrase.lower() in message.content.lower():
+            # MeshCore wraps node names in brackets when tagged, so check both formats:
+            # 1. @nodename (simple format)
+            # 2. @[nodename] (MeshCore tagged format)
+            content_lower = message.content.lower()
+            activation_lower = self.activation_phrase.lower()
+
+            # Direct match
+            if activation_lower in content_lower:
                 return True
-            else:
-                return False
+
+            # Check for bracketed format: @[nodename]
+            # Extract node name without @ prefix
+            if activation_lower.startswith('@'):
+                node_name = activation_lower[1:]  # Remove @ prefix
+                bracketed_format = f"@[{node_name}]"
+                if bracketed_format in content_lower:
+                    return True
+
+            return False
 
         # Default: don't respond to broadcast messages or unknown types
         return False
