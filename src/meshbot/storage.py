@@ -29,7 +29,8 @@ class MeshBotStorage:
         try:
             # SQLite doesn't support async natively, but we can use run_in_executor
             # For simplicity, we'll use sync operations since SQLite is fast
-            self.conn = sqlite3.connect(str(self.db_path))
+            # check_same_thread=False allows the connection to be used across threads
+            self.conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
             self.conn.row_factory = sqlite3.Row  # Enable column access by name
 
             # Create tables
