@@ -307,23 +307,30 @@ async def my_tool(ctx: RunContext[MeshBotDependencies], param: str) -> str:
 
 The agent currently has the following tools implemented in `src/meshbot/agent.py`:
 
-**Utility Tools** (lines 185-291):
+**Utility Tools**:
 - `calculate`: Perform mathematical calculations using Python's eval (safely)
 - `get_current_time`: Return current date and time
 - `search_history`: Search conversation history for keywords
 - `get_bot_status`: Return bot uptime and connection status
 
-**Fun Tools** (lines 394-507):
+**Fun Tools**:
 - `roll_dice`: Roll dice with customizable sides (e.g., 2d6, 1d20)
 - `flip_coin`: Flip a coin (heads or tails)
 - `random_number`: Generate random number in a range
 - `magic_8ball`: Ask the magic 8-ball for wisdom
 
-**Network/Mesh Tools** (lines 172-183, 293-392):
+**Network/Mesh Tools**:
 - `status_request`: Send status request to a node (ping equivalent)
 - `get_contacts`: List all MeshCore contacts with names
 - `get_user_info`: Get user statistics from chat logs
 - `get_conversation_history`: Retrieve recent messages with a user
+
+**Query Tools** (Historical Data):
+- `search_network_events`: Search non-advertisement network events (PATH_UPDATE, STATUS_RESPONSE, etc.)
+- `search_all_messages`: Search messages across all conversations
+- `search_adverts`: Search advertisement history with filters (node_id, time range)
+- `get_node_info`: Get detailed info about a specific mesh node (status, activity, stats)
+- `list_nodes`: List all known nodes with filters (online_only, has_name)
 
 ### Network Awareness Features
 
@@ -331,26 +338,26 @@ The agent includes network situational awareness implemented in `src/meshbot/mes
 
 **Network Event Tracking**:
 - Subscribes to: ADVERTISEMENT, NEW_CONTACT, PATH_UPDATE, NEIGHBOURS_RESPONSE, STATUS_RESPONSE
-- Events logged to SQLite database (`data/meshbot.db`)
-- Indexed for fast queries by event type, node, and time
-- Events formatted with relative timestamps (e.g., "2m ago")
-- Queryable via `search_network_events` tool
+- Advertisements logged to dedicated `adverts` table
+- Other events logged to `network_events` table
+- Events indexed for fast queries by event type, node, and time
+- Queryable via dedicated tools (`search_adverts`, `search_network_events`)
 
-**Node Name Discovery**:
-- Automatically syncs node names from MeshCore contacts on startup
-- When advertisements are received, queries contacts list for friendly names
-- Stores mappings in SQLite database (`node_names` table)
-- Uses `storage.update_node_name()` and `storage.get_node_name()` methods
-- Helper method: `_sync_node_names_from_contacts()`
+**Node Registry**:
+- Central node registry in `nodes` table with comprehensive tracking
+- Automatically updated when advertisements or contacts are received
+- Tracks: name, online status, first/last seen, last advert time, total adverts
+- Queryable via `get_node_info` and `list_nodes` tools
+- Legacy `node_names` table maintained for backward compatibility
 
 **LLM Context Integration** (`src/meshbot/agent.py`):
-- Last 5 network events included in every prompt
-- Events show friendly names (e.g., "ADVERT from abc123... (NodeName)")
-- Provides network situational awareness to the LLM
-- Historical queries available via query tools
+- No automatic injection of network stats into prompts (reduced token usage)
+- Agent uses tools on-demand to query network information
+- Historical queries available via dedicated query tools
+- Provides network situational awareness through tool-based queries
 
 **API Cost Control** (`src/meshbot/agent.py`):
-- UsageLimits set to max 5 requests per message
+- UsageLimits set to max 20 requests per message
 - Graceful error handling for usage limit exceeded
 - Prevents runaway API costs from excessive tool calling
 
@@ -364,25 +371,38 @@ The agent includes network situational awareness implemented in `src/meshbot/mes
 ### Modifying Memory System
 The memory system uses SQLite database storage in `data/meshbot.db`:
 - **Messages table**: Stores all conversations (DMs and channels)
-- **Network events table**: Stores network events (adverts, contacts, paths, status)
-- **Node names table**: Stores node name mappings (pubkey -> friendly name)
+- **Adverts table**: Stores advertisement events (dedicated table for mesh adverts)
+- **Nodes table**: Central node registry with comprehensive node information
+- **Network events table**: Stores other network events (non-advertisements)
+- **Node names table**: Legacy table for backward compatibility
 
 **Schema** (see `src/meshbot/storage.py`):
-- Messages: `id, timestamp, conversation_id, message_type, role, content, sender`
-- Network events: `id, timestamp, event_type, node_id, node_name, details`
-- Node names: `pubkey (PK), name, timestamp, updated_at`
+- **Messages**: `id, timestamp, conversation_id, message_type, role, content, sender`
+- **Adverts**: `id, timestamp, node_id, node_name, signal_strength, details`
+- **Nodes**: `pubkey (PK), name, is_online, first_seen, last_seen, last_advert, total_adverts`
+- **Network events**: `id, timestamp, event_type, node_id, node_name, details`
+- **Node names**: `pubkey (PK), name, timestamp, updated_at` (legacy)
 
 **Indexes**:
 - Messages: conversation_id + timestamp, content (for search)
+- Adverts: node_id + timestamp, timestamp
+- Nodes: is_online + last_seen
 - Network events: event_type + timestamp, node_id + timestamp
 - All tables have automatic primary keys
+
+**Key Methods** (see `src/meshbot/storage.py`):
+- Adverts: `add_advert()`, `search_adverts()`, `get_recent_adverts()`
+- Nodes: `upsert_node()`, `get_node()`, `list_nodes()`, `update_node_advert_count()`
+- Network events: `add_network_event()`, `search_network_events()`
+- Messages: `add_message()`, `get_conversation_messages()`, `search_messages()`
 
 To modify:
 1. Update `src/meshbot/storage.py` for schema changes
 2. Update `src/meshbot/memory.py` for interface changes
-3. Update `src/meshbot/meshcore_interface.py` for network event/node name changes
-4. Add database migrations if changing schema
-5. Update documentation if interface changes
+3. Update `src/meshbot/meshcore_interface.py` for event handling
+4. Update `src/meshbot/agent.py` for new tools
+5. Add database migrations if changing schema
+6. Update documentation if interface changes
 
 ## 🚨 Troubleshooting
 

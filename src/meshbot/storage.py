@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 
 class MeshBotStorage:
-    """SQLite storage for messages, network events, and node names."""
+    """SQLite storage for messages, adverts, nodes, and network events."""
 
     def __init__(self, db_path: Path):
         """
@@ -45,7 +45,7 @@ class MeshBotStorage:
         """Create database tables if they don't exist."""
         cursor = self.conn.cursor()
 
-        # Messages table
+        # Messages table - chat messages
         cursor.execute(
             """
             CREATE TABLE IF NOT EXISTS messages (
@@ -77,7 +77,60 @@ class MeshBotStorage:
         """
         )
 
-        # Network events table
+        # Nodes table - central node registry
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS nodes (
+                pubkey TEXT PRIMARY KEY,
+                name TEXT,
+                is_online INTEGER DEFAULT 0,
+                first_seen REAL NOT NULL,
+                last_seen REAL NOT NULL,
+                last_advert REAL,
+                total_adverts INTEGER DEFAULT 0,
+                updated_at REAL DEFAULT (strftime('%s', 'now'))
+            )
+        """
+        )
+
+        cursor.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_nodes_online
+            ON nodes(is_online, last_seen)
+        """
+        )
+
+        # Adverts table - advertisement events
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS adverts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp REAL NOT NULL,
+                node_id TEXT NOT NULL,
+                node_name TEXT,
+                signal_strength INTEGER,
+                details TEXT,
+                created_at REAL DEFAULT (strftime('%s', 'now')),
+                FOREIGN KEY (node_id) REFERENCES nodes(pubkey)
+            )
+        """
+        )
+
+        cursor.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_adverts_node_time
+            ON adverts(node_id, timestamp)
+        """
+        )
+
+        cursor.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_adverts_time
+            ON adverts(timestamp)
+        """
+        )
+
+        # Network events table - other network events (non-adverts)
         cursor.execute(
             """
             CREATE TABLE IF NOT EXISTS network_events (
@@ -107,7 +160,8 @@ class MeshBotStorage:
         """
         )
 
-        # Node names table
+        # Legacy node_names table - keep for backward compatibility
+        # New code should use 'nodes' table instead
         cursor.execute(
             """
             CREATE TABLE IF NOT EXISTS node_names (
@@ -578,3 +632,302 @@ class MeshBotStorage:
         except Exception as e:
             logger.error(f"Error getting all node names: {e}")
             return []
+
+    # ========== Nodes ==========
+
+    async def upsert_node(
+        self,
+        pubkey: str,
+        name: Optional[str] = None,
+        is_online: bool = False,
+        timestamp: Optional[float] = None,
+    ) -> None:
+        """
+        Add or update a node in the registry.
+
+        Args:
+            pubkey: Node public key
+            name: Friendly name (optional)
+            is_online: Online status
+            timestamp: Timestamp (defaults to current time)
+        """
+        if timestamp is None:
+            timestamp = time.time()
+
+        try:
+            cursor = self.conn.cursor()
+
+            # Check if node exists
+            cursor.execute("SELECT pubkey FROM nodes WHERE pubkey = ?", (pubkey,))
+            exists = cursor.fetchone() is not None
+
+            if exists:
+                # Update existing node
+                update_fields = ["last_seen = ?", "is_online = ?"]
+                params = [timestamp, 1 if is_online else 0]
+
+                if name:
+                    update_fields.append("name = ?")
+                    params.append(name)
+
+                query = f"UPDATE nodes SET {', '.join(update_fields)} WHERE pubkey = ?"
+                params.append(pubkey)
+                cursor.execute(query, params)
+            else:
+                # Insert new node
+                cursor.execute(
+                    """
+                    INSERT INTO nodes (pubkey, name, is_online, first_seen, last_seen)
+                    VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (pubkey, name, 1 if is_online else 0, timestamp, timestamp),
+                )
+
+            self.conn.commit()
+            logger.debug(f"Upserted node: {pubkey[:16]}...")
+
+        except Exception as e:
+            logger.error(f"Error upserting node: {e}")
+            raise
+
+    async def update_node_advert_count(self, pubkey: str, timestamp: Optional[float] = None) -> None:
+        """
+        Increment advert count and update last_advert timestamp for a node.
+
+        Args:
+            pubkey: Node public key
+            timestamp: Advertisement timestamp (defaults to current time)
+        """
+        if timestamp is None:
+            timestamp = time.time()
+
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute(
+                """
+                UPDATE nodes
+                SET total_adverts = total_adverts + 1,
+                    last_advert = ?,
+                    last_seen = ?
+                WHERE pubkey = ?
+                """,
+                (timestamp, timestamp, pubkey),
+            )
+            self.conn.commit()
+
+        except Exception as e:
+            logger.error(f"Error updating node advert count: {e}")
+            raise
+
+    async def get_node(self, pubkey: str) -> Optional[Dict[str, Any]]:
+        """
+        Get node information.
+
+        Args:
+            pubkey: Node public key
+
+        Returns:
+            Node dict or None if not found
+        """
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute(
+                """
+                SELECT pubkey, name, is_online, first_seen, last_seen,
+                       last_advert, total_adverts
+                FROM nodes
+                WHERE pubkey = ?
+                """,
+                (pubkey,),
+            )
+
+            row = cursor.fetchone()
+            if not row:
+                return None
+
+            return {
+                "pubkey": row["pubkey"],
+                "name": row["name"],
+                "is_online": bool(row["is_online"]),
+                "first_seen": row["first_seen"],
+                "last_seen": row["last_seen"],
+                "last_advert": row["last_advert"],
+                "total_adverts": row["total_adverts"],
+            }
+
+        except Exception as e:
+            logger.error(f"Error getting node: {e}")
+            return None
+
+    async def list_nodes(
+        self,
+        online_only: bool = False,
+        has_name: bool = False,
+        limit: int = 50,
+    ) -> List[Dict[str, Any]]:
+        """
+        List nodes with filters.
+
+        Args:
+            online_only: Only return online nodes
+            has_name: Only return nodes with names
+            limit: Maximum number of results
+
+        Returns:
+            List of node dicts
+        """
+        try:
+            cursor = self.conn.cursor()
+
+            query = """
+                SELECT pubkey, name, is_online, first_seen, last_seen,
+                       last_advert, total_adverts
+                FROM nodes
+                WHERE 1=1
+            """
+            params: List[Any] = []
+
+            if online_only:
+                query += " AND is_online = 1"
+
+            if has_name:
+                query += " AND name IS NOT NULL"
+
+            query += " ORDER BY last_seen DESC LIMIT ?"
+            params.append(limit)
+
+            cursor.execute(query, params)
+            rows = cursor.fetchall()
+
+            nodes = []
+            for row in rows:
+                nodes.append(
+                    {
+                        "pubkey": row["pubkey"],
+                        "name": row["name"],
+                        "is_online": bool(row["is_online"]),
+                        "first_seen": row["first_seen"],
+                        "last_seen": row["last_seen"],
+                        "last_advert": row["last_advert"],
+                        "total_adverts": row["total_adverts"],
+                    }
+                )
+
+            return nodes
+
+        except Exception as e:
+            logger.error(f"Error listing nodes: {e}")
+            return []
+
+    # ========== Adverts ==========
+
+    async def add_advert(
+        self,
+        node_id: str,
+        node_name: Optional[str] = None,
+        signal_strength: Optional[int] = None,
+        details: Optional[str] = None,
+        timestamp: Optional[float] = None,
+    ) -> None:
+        """
+        Add an advertisement event.
+
+        Args:
+            node_id: Node public key
+            node_name: Node friendly name (optional)
+            signal_strength: Signal strength (optional)
+            details: Additional details (optional)
+            timestamp: Event timestamp (defaults to current time)
+        """
+        if timestamp is None:
+            timestamp = time.time()
+
+        try:
+            cursor = self.conn.cursor()
+
+            # Add advert record
+            cursor.execute(
+                """
+                INSERT INTO adverts (timestamp, node_id, node_name, signal_strength, details)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (timestamp, node_id, node_name, signal_strength, details),
+            )
+
+            # Update node registry (upsert)
+            await self.upsert_node(node_id, name=node_name, is_online=True, timestamp=timestamp)
+            await self.update_node_advert_count(node_id, timestamp)
+
+            self.conn.commit()
+            logger.debug(f"Added advert from {node_id[:16]}...")
+
+        except Exception as e:
+            logger.error(f"Error adding advert: {e}")
+            raise
+
+    async def search_adverts(
+        self,
+        node_id: Optional[str] = None,
+        since: Optional[float] = None,
+        limit: int = 50,
+    ) -> List[Dict[str, Any]]:
+        """
+        Search advertisements with filters.
+
+        Args:
+            node_id: Filter by node ID (optional, supports partial match)
+            since: Only adverts after this timestamp (optional)
+            limit: Maximum number of results
+
+        Returns:
+            List of advert dicts
+        """
+        try:
+            cursor = self.conn.cursor()
+
+            query = "SELECT timestamp, node_id, node_name, signal_strength, details FROM adverts WHERE 1=1"
+            params: List[Any] = []
+
+            if node_id:
+                query += " AND node_id LIKE ?"
+                params.append(f"%{node_id}%")
+
+            if since:
+                query += " AND timestamp >= ?"
+                params.append(since)
+
+            query += " ORDER BY timestamp DESC LIMIT ?"
+            params.append(limit)
+
+            cursor.execute(query, params)
+            rows = cursor.fetchall()
+
+            adverts = []
+            for row in rows:
+                adverts.append(
+                    {
+                        "timestamp": row["timestamp"],
+                        "node_id": row["node_id"],
+                        "node_name": row["node_name"],
+                        "signal_strength": row["signal_strength"],
+                        "details": row["details"],
+                    }
+                )
+
+            return adverts
+
+        except Exception as e:
+            logger.error(f"Error searching adverts: {e}")
+            return []
+
+    async def get_recent_adverts(self, limit: int = 10) -> List[Dict[str, Any]]:
+        """
+        Get recent advertisements.
+
+        Args:
+            limit: Maximum number of adverts to return
+
+        Returns:
+            List of advert dicts
+        """
+        return await self.search_adverts(limit=limit)

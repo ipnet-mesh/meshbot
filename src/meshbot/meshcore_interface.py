@@ -640,28 +640,28 @@ class RealMeshCoreInterface(MeshCoreInterface):
                     except Exception as e:
                         logger.debug(f"Could not query contacts for name: {e}")
 
-                # Update node name mapping if we have both
-                if sender != "unknown" and name:
-                    await self._storage.update_node_name(sender, name)
+                # Log advertisement to dedicated adverts table
+                if sender != "unknown":
+                    signal_strength = payload.get("signal_strength")
+                    details = f"ADVERT from {sender[:16]}"
+                    if name:
+                        details += f" ({name})"
 
-                # Try to get friendly name from our mapping
-                friendly_name = (
-                    await self._storage.get_node_name(sender)
-                    if sender != "unknown"
-                    else None
-                )
-
-                # If sender is still unknown, log the full payload for debugging
-                if sender == "unknown":
+                    await self._storage.add_advert(
+                        node_id=sender,
+                        node_name=name if name else None,
+                        signal_strength=signal_strength,
+                        details=details,
+                        timestamp=timestamp,
+                    )
+                    logger.debug(f"Advertisement logged: {details}")
+                    # Skip adding to network_events since it's in adverts table
+                    return
+                else:
                     logger.warning(
                         f"Could not extract sender from advertisement: {payload}"
                     )
-
-                # Format event with friendly name if available
-                sender_display = sender[:16] if sender != "unknown" else sender
-                event_info = f"ADVERT from {sender_display}"
-                if friendly_name:
-                    event_info += f" ({friendly_name})"
+                    event_info = "ADVERT from unknown"
             elif event_type == "new_contact":
                 pubkey = (
                     payload.get("public_key")
@@ -671,22 +671,23 @@ class RealMeshCoreInterface(MeshCoreInterface):
                 )
                 name = payload.get("adv_name", "") or payload.get("name", "")
 
-                # Update node name mapping if we have both
-                if pubkey != "unknown" and name:
-                    await self._storage.update_node_name(pubkey, name)
+                # Update node registry
+                if pubkey != "unknown":
+                    await self._storage.upsert_node(
+                        pubkey=pubkey,
+                        name=name if name else None,
+                        is_online=True,
+                        timestamp=timestamp,
+                    )
+                    # Also update legacy node_names for backward compatibility
+                    if name:
+                        await self._storage.update_node_name(pubkey, name)
 
-                # Try to get friendly name from our mapping
-                friendly_name = (
-                    await self._storage.get_node_name(pubkey)
-                    if pubkey != "unknown"
-                    else None
-                )
-
-                # Format event with friendly name if available
+                # Format event with name if available
                 pubkey_display = pubkey[:16] if pubkey != "unknown" else pubkey
                 event_info = f"NEW_CONTACT {pubkey_display}"
-                if friendly_name:
-                    event_info += f" ({friendly_name})"
+                if name:
+                    event_info += f" ({name})"
             elif event_type == "path_update":
                 dest = (
                     payload.get("destination")

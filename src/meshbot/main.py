@@ -474,7 +474,7 @@ def test(
 )
 @click.option(
     "--table",
-    type=click.Choice(["all", "messages", "network_events", "node_names"]),
+    type=click.Choice(["all", "messages", "adverts", "nodes", "network_events", "node_names"]),
     default="all",
     help="Which table(s) to dump (default: all)",
 )
@@ -500,7 +500,7 @@ def dump(db_path: Path, table: str, limit: int) -> None:
         # Determine which tables to dump
         tables_to_dump = []
         if table == "all":
-            tables_to_dump = ["messages", "network_events", "node_names"]
+            tables_to_dump = ["messages", "adverts", "nodes", "network_events", "node_names"]
         else:
             tables_to_dump = [table]
 
@@ -517,10 +517,14 @@ def dump(db_path: Path, table: str, limit: int) -> None:
                 click.echo("(empty)\n")
                 continue
 
-            # Fetch rows (node_names doesn't have id column, uses pubkey as PK)
+            # Fetch rows (some tables use different ordering)
             if table_name == "node_names":
                 cursor.execute(
                     f"SELECT * FROM {table_name} ORDER BY timestamp DESC LIMIT {limit}"
+                )
+            elif table_name == "nodes":
+                cursor.execute(
+                    f"SELECT * FROM {table_name} ORDER BY last_seen DESC LIMIT {limit}"
                 )
             else:
                 cursor.execute(
@@ -548,6 +552,38 @@ def dump(db_path: Path, table: str, limit: int) -> None:
                         else row["content"]
                     )
                     click.echo(f"[{ts}] {conv_id} ({msg_type}) {role}: {content}")
+
+            elif table_name == "adverts":
+                click.echo("\nFormat: [TIMESTAMP] NODE_ID (NAME) DETAILS")
+                click.echo("-" * 80)
+                for row in rows:
+                    ts = datetime.fromtimestamp(row["timestamp"]).strftime(
+                        "%Y-%m-%d %H:%M:%S"
+                    )
+                    node_id = (
+                        row["node_id"][:16] + "..."
+                        if row["node_id"] and len(row["node_id"]) > 16
+                        else row["node_id"] or "unknown"
+                    )
+                    node_name = f" ({row['node_name']})" if row["node_name"] else ""
+                    details = row["details"] or ""
+                    click.echo(f"[{ts}] {node_id}{node_name} {details}")
+
+            elif table_name == "nodes":
+                click.echo("\nFormat: PUBKEY (NAME) STATUS | FIRST_SEEN -> LAST_SEEN | ADVERTS")
+                click.echo("-" * 80)
+                for row in rows:
+                    pubkey = (
+                        row["pubkey"][:16] + "..."
+                        if len(row["pubkey"]) > 16
+                        else row["pubkey"]
+                    )
+                    name = f" ({row['name']})" if row["name"] else ""
+                    status = "🟢" if row["is_online"] else "🔴"
+                    first_seen = datetime.fromtimestamp(row["first_seen"]).strftime("%Y-%m-%d %H:%M")
+                    last_seen = datetime.fromtimestamp(row["last_seen"]).strftime("%Y-%m-%d %H:%M")
+                    total_adverts = row["total_adverts"]
+                    click.echo(f"{pubkey}{name} {status} | {first_seen} -> {last_seen} | {total_adverts} adverts")
 
             elif table_name == "network_events":
                 click.echo("\nFormat: [TIMESTAMP] TYPE: DETAILS")
