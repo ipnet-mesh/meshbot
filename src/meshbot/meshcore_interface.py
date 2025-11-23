@@ -274,19 +274,19 @@ class RealMeshCoreInterface(MeshCoreInterface):
         self._own_node_name: Optional[str] = None
         self._message_handlers: List[Callable[[MeshCoreMessage], Any]] = []
 
-        # Network event logging
-        self._network_events_path = Path("logs") / "network_events.txt"
-        self._network_events_path.parent.mkdir(exist_ok=True)
-        self._max_network_events = 100  # Keep last 100 events
+        # SQLite storage for network events and node names
+        from .storage import MeshBotStorage
 
-        # Node names tracking
-        self._node_names_path = Path("logs") / "node_names.txt"
-        self._node_names_path.parent.mkdir(exist_ok=True)
-        self._max_node_names = 1000  # Keep last 1000 name mappings
+        db_path = Path("data") / "meshbot.db"
+        self._storage = MeshBotStorage(db_path)
 
     async def connect(self) -> None:
         """Connect to real MeshCore device."""
         try:
+            # Initialize storage
+            await self._storage.initialize()
+            logger.info("Storage initialized for network events and node names")
+
             from meshcore import (  # type: ignore
                 BLEConnection,
                 EventType,
@@ -642,11 +642,13 @@ class RealMeshCoreInterface(MeshCoreInterface):
 
                 # Update node name mapping if we have both
                 if sender != "unknown" and name:
-                    self._update_node_name(sender, name)
+                    await self._storage.update_node_name(sender, name)
 
                 # Try to get friendly name from our mapping
                 friendly_name = (
-                    self._get_node_name(sender) if sender != "unknown" else None
+                    await self._storage.get_node_name(sender)
+                    if sender != "unknown"
+                    else None
                 )
 
                 # If sender is still unknown, log the full payload for debugging
@@ -671,11 +673,13 @@ class RealMeshCoreInterface(MeshCoreInterface):
 
                 # Update node name mapping if we have both
                 if pubkey != "unknown" and name:
-                    self._update_node_name(pubkey, name)
+                    await self._storage.update_node_name(pubkey, name)
 
                 # Try to get friendly name from our mapping
                 friendly_name = (
-                    self._get_node_name(pubkey) if pubkey != "unknown" else None
+                    await self._storage.get_node_name(pubkey)
+                    if pubkey != "unknown"
+                    else None
                 )
 
                 # Format event with friendly name if available
@@ -707,7 +711,9 @@ class RealMeshCoreInterface(MeshCoreInterface):
 
                 # Try to get friendly name from our mapping
                 friendly_name = (
-                    self._get_node_name(from_node) if from_node != "unknown" else None
+                    await self._storage.get_node_name(from_node)
+                    if from_node != "unknown"
+                    else None
                 )
 
                 # Format event with friendly name if available
@@ -718,22 +724,12 @@ class RealMeshCoreInterface(MeshCoreInterface):
                 if friendly_name:
                     event_info += f" ({friendly_name})"
 
-            # Log to file
-            log_line = f"{timestamp}|{event_info}"
-
-            # Append to file
-            with open(self._network_events_path, "a", encoding="utf-8") as f:
-                f.write(log_line + "\n")
-
-            # Trim file if too large
-            try:
-                with open(self._network_events_path, "r", encoding="utf-8") as f:
-                    lines = f.readlines()
-                if len(lines) > self._max_network_events:
-                    with open(self._network_events_path, "w", encoding="utf-8") as f:
-                        f.writelines(lines[-self._max_network_events :])
-            except:
-                pass  # If trimming fails, just continue
+            # Log to database
+            await self._storage.add_network_event(
+                event_type=event_type.upper(),
+                details=event_info,
+                timestamp=timestamp,
+            )
 
             logger.debug(f"Network event logged: {event_info}")
 
@@ -743,22 +739,36 @@ class RealMeshCoreInterface(MeshCoreInterface):
     def get_recent_network_events(self, limit: int = 10) -> List[str]:
         """Get recent network events for context."""
         try:
-            if not self._network_events_path.exists():
-                return []
+            import asyncio
 
-            with open(self._network_events_path, "r", encoding="utf-8") as f:
-                lines = f.readlines()
+            # Get events from SQLite (this is a sync method calling async storage)
+            # We need to handle this carefully
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                # If we're in an async context, create a task
+                # This is a workaround for calling async from sync
+                import concurrent.futures
 
-            # Get last N lines and format them
-            recent = lines[-limit:]
+                with concurrent.futures.ThreadPoolExecutor() as executor:
+                    future = executor.submit(
+                        asyncio.run, self._storage.get_recent_network_events(limit)
+                    )
+                    events_data = future.result()
+            else:
+                events_data = asyncio.run(
+                    self._storage.get_recent_network_events(limit)
+                )
+
+            # Format events for display
             events = []
-            for line in recent:
+            for event_data in reversed(events_data):  # Reverse to show oldest first
                 try:
-                    timestamp_str, event_info = line.strip().split("|", 1)
+                    timestamp = event_data["timestamp"]
+                    event_info = event_data["details"]
+
                     # Format timestamp to relative time
                     import time
 
-                    timestamp = float(timestamp_str)
                     age_seconds = time.time() - timestamp
                     if age_seconds < 60:
                         time_ago = f"{int(age_seconds)}s ago"
@@ -776,78 +786,6 @@ class RealMeshCoreInterface(MeshCoreInterface):
         except Exception as e:
             logger.error(f"Error getting network events: {e}")
             return []
-
-    def _update_node_name(self, pubkey: str, name: str) -> None:
-        """Update or add a node name mapping.
-
-        Args:
-            pubkey: The node's public key (can be full or prefix)
-            name: The friendly name for the node
-        """
-        try:
-            import time
-
-            # Read existing mappings
-            mappings = {}
-            if self._node_names_path.exists():
-                with open(self._node_names_path, "r", encoding="utf-8") as f:
-                    for line in f:
-                        try:
-                            parts = line.strip().split("|")
-                            if len(parts) >= 2:
-                                mappings[parts[0]] = {
-                                    "name": parts[1],
-                                    "timestamp": (
-                                        float(parts[2]) if len(parts) > 2 else 0
-                                    ),
-                                }
-                        except:
-                            continue
-
-            # Update or add mapping
-            mappings[pubkey] = {"name": name, "timestamp": time.time()}
-
-            # Write back (keeping only most recent entries)
-            with open(self._node_names_path, "w", encoding="utf-8") as f:
-                # Sort by timestamp, keep most recent
-                sorted_mappings = sorted(
-                    mappings.items(), key=lambda x: x[1]["timestamp"], reverse=True
-                )
-                for key, data in sorted_mappings[: self._max_node_names]:
-                    f.write(f"{key}|{data['name']}|{data['timestamp']}\n")
-
-            logger.debug(f"Updated node name: {pubkey[:16]}... -> {name}")
-
-        except Exception as e:
-            logger.error(f"Error updating node name: {e}")
-
-    def _get_node_name(self, pubkey: str) -> Optional[str]:
-        """Get a friendly name for a node by public key.
-
-        Args:
-            pubkey: The node's public key (can be full or prefix)
-
-        Returns:
-            The friendly name if found, None otherwise
-        """
-        try:
-            if not self._node_names_path.exists():
-                return None
-
-            with open(self._node_names_path, "r", encoding="utf-8") as f:
-                for line in f:
-                    try:
-                        parts = line.strip().split("|")
-                        if len(parts) >= 2 and parts[0] == pubkey:
-                            return parts[1]
-                    except:
-                        continue
-
-            return None
-
-        except Exception as e:
-            logger.error(f"Error getting node name: {e}")
-            return None
 
     async def _sync_node_names_from_contacts(self) -> None:
         """Sync node names from the contacts list.
@@ -868,7 +806,7 @@ class RealMeshCoreInterface(MeshCoreInterface):
                 if pubkey and name:
                     # Use pubkey_prefix if available, otherwise full key
                     key_to_use = contact_data.get("pubkey_prefix", pubkey)
-                    self._update_node_name(key_to_use, name)
+                    await self._storage.update_node_name(key_to_use, name)
 
             logger.debug("Synced node names from contacts list")
 

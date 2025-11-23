@@ -97,14 +97,15 @@ pytest tests/test_basic.py -v
    - Event-based message handling (DMs and channels)
    - Network event tracking (ADVERTISEMENT, NEW_CONTACT, PATH_UPDATE, NEIGHBOURS_RESPONSE, STATUS_RESPONSE)
    - Automatic node name discovery from contacts
-   - Node name mapping storage in `logs/node_names.txt`
-   - Network events logged to `logs/network_events.txt` (max 100 events)
+   - Node name mapping storage in SQLite database
+   - Network events logged to SQLite database
 
 2. **AI Agent** (`src/meshbot/agent.py`)
    - Pydantic AI agent with rich tool set
    - **Utility tools**: calculate, get_current_time, search_history, get_bot_status
    - **Fun tools**: roll_dice, flip_coin, random_number, magic_8ball
    - **Network/mesh tools**: status_request, get_contacts, get_user_info, get_conversation_history
+   - **Query tools**: search_network_events, search_all_messages (for historical searches)
    - Dependency injection system
    - Structured responses
    - Automatic message splitting for MeshCore length limits
@@ -115,16 +116,15 @@ pytest tests/test_basic.py -v
    - Network context injection (last 5 network events included in prompts)
    - Graceful handling of usage limit errors
 
-3. **Memory System** (`src/meshbot/memory.py`)
-   - Simple text file-based chat logs
-   - Separate logs for DMs and channels
-   - Network event tracking in `logs/network_events.txt`
-   - Node name mappings in `logs/node_names.txt`
-   - Automatic trimming to configured limits (1000 for conversations, 100 for network events)
-   - Format: `timestamp|role|content` for conversations
-   - Format: `timestamp|event_info` for network events
-   - Format: `pubkey|name|timestamp` for node names
+3. **Memory System** (`src/meshbot/memory.py` + `src/meshbot/storage.py`)
+   - SQLite-based storage for all data
+   - Single database file: `data/meshbot.db`
+   - Three main tables: messages, network_events, node_names
+   - Indexed for fast queries (conversation lookups, content search, event filtering)
+   - Automatic connection management
+   - Supports complex queries (time ranges, keyword search, filtering)
    - Persistent across restarts
+   - Query tools for historical data access
 
 4. **Configuration** (`src/meshbot/config.py`)
    - Environment variable support
@@ -236,16 +236,14 @@ meshbot/
 ├── .venv/                 # Virtual environment (gitignored)
 ├── src/meshbot/           # Main package
 │   ├── __init__.py
-│   ├── agent.py           # Pydantic AI agent with message splitting
+│   ├── agent.py           # Pydantic AI agent with query tools
 │   ├── meshcore_interface.py  # MeshCore communication
-│   ├── memory.py          # Text file-based chat logs
+│   ├── memory.py          # SQLite storage interface
+│   ├── storage.py         # SQLite database layer
 │   ├── config.py          # Configuration management
 │   └── main.py           # CLI entry point
-├── logs/                  # Log files (auto-created)
-│   ├── channel.txt        # Channel conversation log
-│   ├── dm_*.txt          # Direct message logs per user
-│   ├── network_events.txt # Network events (adverts, contacts, paths, status)
-│   └── node_names.txt    # Node name mappings (pubkey -> friendly name)
+├── data/                  # Data directory (auto-created, gitignored)
+│   └── meshbot.db        # SQLite database (messages, events, node names)
 ├── tests/                # Test suite
 │   ├── test_basic.py
 │   └── conftest.py       # pytest configuration
@@ -331,25 +329,27 @@ The agent currently has the following tools implemented in `src/meshbot/agent.py
 
 The agent includes network situational awareness implemented in `src/meshbot/meshcore_interface.py`:
 
-**Network Event Tracking** (lines 504-638):
+**Network Event Tracking**:
 - Subscribes to: ADVERTISEMENT, NEW_CONTACT, PATH_UPDATE, NEIGHBOURS_RESPONSE, STATUS_RESPONSE
-- Events logged to `logs/network_events.txt` with timestamps
-- Max 100 events kept (auto-trimmed)
+- Events logged to SQLite database (`data/meshbot.db`)
+- Indexed for fast queries by event type, node, and time
 - Events formatted with relative timestamps (e.g., "2m ago")
+- Queryable via `search_network_events` tool
 
-**Node Name Discovery** (lines 640-736):
+**Node Name Discovery**:
 - Automatically syncs node names from MeshCore contacts on startup
 - When advertisements are received, queries contacts list for friendly names
-- Stores mappings in `logs/node_names.txt` as `pubkey|name|timestamp`
-- Max 1000 mappings kept (sorted by most recent)
-- Helper methods: `_update_node_name()`, `_get_node_name()`, `_sync_node_names_from_contacts()`
+- Stores mappings in SQLite database (`node_names` table)
+- Uses `storage.update_node_name()` and `storage.get_node_name()` methods
+- Helper method: `_sync_node_names_from_contacts()`
 
-**LLM Context Integration** (`src/meshbot/agent.py` lines 720-748):
+**LLM Context Integration** (`src/meshbot/agent.py`):
 - Last 5 network events included in every prompt
 - Events show friendly names (e.g., "ADVERT from abc123... (NodeName)")
 - Provides network situational awareness to the LLM
+- Historical queries available via query tools
 
-**API Cost Control** (`src/meshbot/agent.py` lines 754-757, 779-792):
+**API Cost Control** (`src/meshbot/agent.py`):
 - UsageLimits set to max 5 requests per message
 - Graceful error handling for usage limit exceeded
 - Prevents runaway API costs from excessive tool calling
@@ -362,26 +362,27 @@ The agent includes network situational awareness implemented in `src/meshbot/mes
 5. Update documentation
 
 ### Modifying Memory System
-The memory system uses simple text files in `logs/`:
-- **Channel messages**: `logs/channel.txt`
-- **Direct messages**: `logs/dm_{user_id}.txt`
-- **Network events**: `logs/network_events.txt`
-- **Node names**: `logs/node_names.txt`
+The memory system uses SQLite database storage in `data/meshbot.db`:
+- **Messages table**: Stores all conversations (DMs and channels)
+- **Network events table**: Stores network events (adverts, contacts, paths, status)
+- **Node names table**: Stores node name mappings (pubkey -> friendly name)
 
-**Formats**:
-- Conversations: `timestamp|role|content` (pipes in content are escaped to `│`)
-- Network events: `timestamp|event_info` (e.g., `1734567890.123|ADVERT from 2369759a49261ac6 (NodeName)`)
-- Node names: `pubkey|name|timestamp` (e.g., `2369759a49261ac6|NodeName|1734567890.123`)
+**Schema** (see `src/meshbot/storage.py`):
+- Messages: `id, timestamp, conversation_id, message_type, role, content, sender`
+- Network events: `id, timestamp, event_type, node_id, node_name, details`
+- Node names: `pubkey (PK), name, timestamp, updated_at`
 
-**Limits**:
-- 1000 lines for conversation logs (auto-trimmed)
-- 100 events for network events log (auto-trimmed)
-- 1000 mappings for node names (auto-trimmed, sorted by most recent)
+**Indexes**:
+- Messages: conversation_id + timestamp, content (for search)
+- Network events: event_type + timestamp, node_id + timestamp
+- All tables have automatic primary keys
 
 To modify:
-1. Update `src/meshbot/memory.py` or `src/meshbot/meshcore_interface.py` (for network events/node names)
-2. Maintain backward compatibility with existing log files
-3. Update documentation if format changes
+1. Update `src/meshbot/storage.py` for schema changes
+2. Update `src/meshbot/memory.py` for interface changes
+3. Update `src/meshbot/meshcore_interface.py` for network event/node name changes
+4. Add database migrations if changing schema
+5. Update documentation if interface changes
 
 ## 🚨 Troubleshooting
 

@@ -48,12 +48,8 @@ class AIConfig:
     model: str = field(
         default_factory=lambda: os.getenv("LLM_MODEL", "openai:gpt-4o-mini")
     )
-    api_key: Optional[str] = field(
-        default_factory=lambda: os.getenv("LLM_API_KEY")
-    )
-    base_url: Optional[str] = field(
-        default_factory=lambda: os.getenv("LLM_BASE_URL")
-    )
+    api_key: Optional[str] = field(default_factory=lambda: os.getenv("LLM_API_KEY"))
+    base_url: Optional[str] = field(default_factory=lambda: os.getenv("LLM_BASE_URL"))
     max_tokens: int = field(
         default_factory=lambda: int(os.getenv("AI_MAX_TOKENS", "500"))
     )
@@ -80,7 +76,7 @@ class MemoryConfig:
     """Configuration for memory management."""
 
     storage_path: Path = field(
-        default_factory=lambda: Path(os.getenv("MEMORY_PATH", "memory.json"))
+        default_factory=lambda: Path(os.getenv("MEMORY_PATH", "data/meshbot.db"))
     )
     max_messages_per_user: int = field(
         default_factory=lambda: int(os.getenv("MEMORY_MAX_MESSAGES", "100"))
