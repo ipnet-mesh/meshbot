@@ -1,4 +1,4 @@
-"""Query tools for searching historical data."""
+"""Node and conversation tools for MeshBot."""
 
 import logging
 from typing import Any, Optional
@@ -10,8 +10,8 @@ from .logging_wrapper import create_logging_tool_decorator
 logger = logging.getLogger(__name__)
 
 
-def register_query_tools(agent: Any) -> None:
-    """Register query tools for historical data.
+def register_node_tools(agent: Any) -> None:
+    """Register node-related tools (conversations, queries, and node information).
 
     Args:
         agent: The Pydantic AI agent to register tools with
@@ -19,65 +19,70 @@ def register_query_tools(agent: Any) -> None:
     # Create logging tool decorator
     tool = create_logging_tool_decorator(agent)
 
+    # ========== Conversation Tools ==========
+
     @tool()
-    async def search_messages(
-        ctx: RunContext[Any],
-        keyword: str,
-        hours_ago: Optional[int] = None,
-        limit: int = 20,
+    async def get_channel_messages(
+        ctx: RunContext[Any], channel: str = "0", limit: int = 5
     ) -> str:
-        """Search messages across all conversations.
+        """Get recent messages from a channel.
 
         Args:
-            keyword: Keyword to search for (case-insensitive)
-            hours_ago: Only show messages from last N hours
-            limit: Maximum number of results (default 20, max 50)
+            channel: Channel number (default: "0" for main channel)
+            limit: Number of recent messages to retrieve (default: 5)
 
         Returns:
-            Formatted list of matching messages
+            Recent channel messages in time order
         """
         try:
-            import time
-
-            # Calculate timestamp filter if hours_ago is specified
-            since = None
-            if hours_ago is not None:
-                since = time.time() - (hours_ago * 3600)
-
-            # Limit to max 50 results
-            limit = min(limit, 50)
-
-            # Query storage
-            messages = await ctx.deps.memory.storage.search_messages(
-                keyword=keyword,
-                since=since,
-                limit=limit,
+            # Get messages from channel
+            messages = await ctx.deps.memory.storage.get_conversation_messages(
+                conversation_id=channel, limit=limit
             )
-
             if not messages:
-                time_filter = f" in last {hours_ago}h" if hours_ago else ""
-                return f"No messages found containing '{keyword}'{time_filter}"
+                return f"No messages in channel {channel}."
 
-            # Format results
-            from datetime import datetime
-
-            result = f"Found {len(messages)} message(s) with '{keyword}':\n"
+            response = f"Last {len(messages)} message(s) in channel {channel}:\n"
             for msg in messages:
-                timestamp = datetime.fromtimestamp(msg["timestamp"])
-                time_str = timestamp.strftime("%Y-%m-%d %H:%M")
                 role = "User" if msg["role"] == "user" else "Bot"
-                content_preview = (
-                    msg["content"][:60] + "..."
-                    if len(msg["content"]) > 60
-                    else msg["content"]
-                )
-                result += f"[{time_str}] {role}: {content_preview}\n"
+                response += f"{role}: {msg['content']}\n"
 
-            return result.strip()
-
+            return response.strip()
         except Exception as e:
-            logger.error(f"Error searching messages: {e}")
-            return "Error searching messages"
+            logger.error(f"Error getting channel messages: {e}")
+            return f"Error retrieving messages from channel {channel}."
+
+    @tool()
+    async def get_user_messages(
+        ctx: RunContext[Any], user_id: str, limit: int = 5
+    ) -> str:
+        """Get recent private messages with a specific user.
+
+        Args:
+            user_id: User's public key (full or first 8-16 characters)
+            limit: Number of recent messages to retrieve (default: 5)
+
+        Returns:
+            Recent private messages with the user in time order
+        """
+        try:
+            messages = await ctx.deps.memory.storage.get_conversation_messages(
+                conversation_id=user_id, limit=limit
+            )
+            if not messages:
+                return f"No conversation history with user {user_id[:16]}..."
+
+            response = f"Last {len(messages)} message(s) with {user_id[:16]}:\n"
+            for msg in messages:
+                role = "User" if msg["role"] == "user" else "Bot"
+                response += f"{role}: {msg['content']}\n"
+
+            return response.strip()
+        except Exception as e:
+            logger.error(f"Error getting user messages: {e}")
+            return f"Error retrieving messages with user {user_id[:16]}..."
+
+    # ========== Query Tools ==========
 
     @tool()
     async def list_adverts(

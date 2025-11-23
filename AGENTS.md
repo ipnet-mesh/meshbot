@@ -114,7 +114,7 @@ pytest tests/test_basic.py -v
    - **Utility tools**: calculate, get_current_time, search_history, get_bot_status
    - **Fun tools**: roll_dice, flip_coin, random_number, magic_8ball
    - **Network/mesh tools**: get_contacts, get_conversation_history
-   - **Query tools**: search_messages (for historical searches)
+   - **Query tools**: search_adverts, get_node_info, list_nodes (for historical network data)
    - Dependency injection system
    - Structured responses
    - Automatic message splitting for MeshCore length limits
@@ -338,7 +338,6 @@ The agent currently has the following tools implemented in `src/meshbot/agent.py
 - `get_conversation_history`: Retrieve recent messages with a user
 
 **Query Tools** (Historical Data):
-- `search_messages`: Search messages across all conversations
 - `search_adverts`: Search advertisement history with filters (node_id, time range)
 - `get_node_info`: Get detailed info about a specific mesh node (status, activity, stats)
 - `list_nodes`: List all known nodes with filters (online_only, has_name)
