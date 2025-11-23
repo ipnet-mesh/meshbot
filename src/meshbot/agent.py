@@ -50,7 +50,6 @@ class MeshBotAgent:
         model: str = "openai:gpt-4o-mini",
         memory_path: Optional[Path] = None,
         meshcore_connection_type: str = "mock",
-        activation_phrase: str = "@bot",
         listen_channel: str = "0",
         custom_prompt: Optional[str] = None,
         base_url: Optional[str] = None,
@@ -61,13 +60,13 @@ class MeshBotAgent:
         self.model = model
         self.memory_path = memory_path
         self.meshcore_connection_type = meshcore_connection_type
-        self.activation_phrase = activation_phrase.lower()
         self.listen_channel = listen_channel
         self.custom_prompt = custom_prompt
         self.base_url = base_url
         self.max_message_length = max_message_length
         self.node_name = node_name
         self.meshcore_kwargs = meshcore_kwargs
+        self._mention_name: Optional[str] = None  # Will be set to @nodename after initialization
 
         # Initialize components
         self.meshcore: Optional[MeshCoreInterface] = None
@@ -555,29 +554,29 @@ class MeshBotAgent:
         except Exception as e:
             logger.warning(f"Clock sync failed: {e}")
 
-        # Send local advertisement to announce presence (after setting name)
+        # Send flood advertisement to announce presence to all nodes (after setting name)
         try:
-            await self.meshcore.send_local_advert()
+            await self.meshcore.send_flood_advert()
         except Exception as e:
-            logger.warning(f"Local advert failed: {e}")
+            logger.warning(f"Flood advert failed: {e}")
 
-        # Get bot's own node name and use it as activation phrase
+        # Get bot's own node name for @ mentions
         try:
             node_name = await self.meshcore.get_own_node_name()
             if node_name:
-                # Use the node name with @ prefix as activation phrase
-                self.activation_phrase = f"@{node_name}".lower()
+                # Use the node name with @ prefix for mention detection
+                self._mention_name = f"@{node_name}".lower()
                 logger.info(
-                    f"Using node name as activation phrase: {self.activation_phrase}"
+                    f"Bot will respond to DMs and @ mentions of: {self._mention_name}"
                 )
             else:
-                logger.info(
-                    f"Node name not set, using configured activation phrase: {self.activation_phrase}"
+                logger.warning(
+                    "Node name not set - bot will only respond to DMs, not channel mentions"
                 )
         except Exception as e:
             logger.warning(f"Could not retrieve node name: {e}")
-            logger.info(
-                f"Using configured activation phrase: {self.activation_phrase}"
+            logger.warning(
+                "Bot will only respond to DMs, not channel mentions"
             )
 
         self._running = True
@@ -664,7 +663,7 @@ class MeshBotAgent:
         - Always respond to DMs (direct messages)
         - For channel messages, only respond if:
           1. Message is on the configured listen_channel
-          2. Message contains the activation_phrase
+          2. Message mentions the bot's node name (e.g., @NodeName)
         """
         # CRITICAL: Never respond to messages from the bot itself
         # This prevents infinite loops where the bot responds to its own messages
@@ -682,7 +681,7 @@ class MeshBotAgent:
         if message.message_type == "direct":
             return True
 
-        # For channel messages, check channel and activation phrase
+        # For channel messages, check channel and node name mention
         if message.message_type == "channel":
             # Check if it's the channel we're listening to
             # Handle both string channel names and numeric IDs
@@ -690,21 +689,26 @@ class MeshBotAgent:
             if message_channel != self.listen_channel:
                 return False
 
-            # Check for activation phrase (case-insensitive)
+            # If we don't have a mention name (node name not set), don't respond to channel messages
+            if not self._mention_name:
+                logger.debug("No mention name set, ignoring channel message")
+                return False
+
+            # Check for node name mention (case-insensitive)
             # MeshCore wraps node names in brackets when tagged, so check both formats:
             # 1. @nodename (simple format)
             # 2. @[nodename] (MeshCore tagged format)
             content_lower = message.content.lower()
-            activation_lower = self.activation_phrase.lower()
+            mention_lower = self._mention_name.lower()
 
             # Direct match
-            if activation_lower in content_lower:
+            if mention_lower in content_lower:
                 return True
 
             # Check for bracketed format: @[nodename]
             # Extract node name without @ prefix
-            if activation_lower.startswith('@'):
-                node_name = activation_lower[1:]  # Remove @ prefix
+            if mention_lower.startswith('@'):
+                node_name = mention_lower[1:]  # Remove @ prefix
                 bracketed_format = f"@[{node_name}]"
                 if bracketed_format in content_lower:
                     return True

@@ -86,6 +86,11 @@ class MeshCoreInterface(ABC):
         pass
 
     @abstractmethod
+    async def send_flood_advert(self) -> bool:
+        """Send a flood advertisement to announce presence to all nodes."""
+        pass
+
+    @abstractmethod
     async def set_node_name(self, name: str) -> bool:
         """Set the node's advertised name."""
         pass
@@ -195,6 +200,15 @@ class MockMeshCoreInterface(MeshCoreInterface):
             return False
 
         logger.info("Mock: Sending local advertisement")
+        await asyncio.sleep(0.1)
+        return True
+
+    async def send_flood_advert(self) -> bool:
+        """Mock send flood advertisement."""
+        if not self._connected:
+            return False
+
+        logger.info("Mock: Sending flood advertisement")
         await asyncio.sleep(0.1)
         return True
 
@@ -487,6 +501,20 @@ class RealMeshCoreInterface(MeshCoreInterface):
             return result is not None
         except Exception as e:
             logger.error(f"Failed to send local advert: {e}")
+            return False
+
+    async def send_flood_advert(self) -> bool:
+        """Send a flood advertisement to announce presence to all nodes."""
+        if not self._connected or not self._meshcore:
+            return False
+
+        try:
+            logger.info("Sending flood advertisement...")
+            result = await self._meshcore.commands.send_advert(flood=True)
+            logger.info("Flood advertisement sent")
+            return result is not None
+        except Exception as e:
+            logger.error(f"Failed to send flood advert: {e}")
             return False
 
     async def set_node_name(self, name: str) -> bool:

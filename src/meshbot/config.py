@@ -60,9 +60,6 @@ class AIConfig:
     temperature: float = field(
         default_factory=lambda: float(os.getenv("AI_TEMPERATURE", "0.7"))
     )
-    activation_phrase: str = field(
-        default_factory=lambda: os.getenv("ACTIVATION_PHRASE", "@bot")
-    )
     listen_channel: str = field(
         default_factory=lambda: os.getenv("LISTEN_CHANNEL", "0")
     )

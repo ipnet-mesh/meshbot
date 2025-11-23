@@ -29,5 +29,4 @@ services:
     #   - MESHCORE_NODE_NAME=MeshBot
     #   - MESHCORE_CONNECTION_TYPE=serial
     #   - MESHCORE_PORT=/dev/ttyUSB0
-    #   - ACTIVATION_PHRASE=@bot
     #   - LOG_LEVEL=INFO

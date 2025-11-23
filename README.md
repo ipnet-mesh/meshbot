@@ -2,6 +2,71 @@
 
 MeshBot is an intelligent AI agent that communicates through the MeshCore network using Pydantic AI as its framework. It maintains conversation history with users through simple text file logs and handles both direct messages and channel communications with automatic message length management for MeshCore's constraints.
 
+## 🐳 Quick Start with Docker (Recommended)
+
+The easiest way to run MeshBot is using our Docker image:
+
+```bash
+# Pull the latest image
+docker pull ghcr.io/ipnet-mesh/meshbot:latest
+
+# Run with mock connection (for testing)
+docker run -it --rm \
+  -e LLM_API_KEY=your_api_key_here \
+  -e LLM_MODEL=openai:gpt-4o-mini \
+  -e MESHCORE_CONNECTION_TYPE=mock \
+  ghcr.io/ipnet-mesh/meshbot:latest
+
+# Run with serial connection (real hardware)
+docker run -it --rm \
+  --device=/dev/ttyUSB0 \
+  -v $(pwd)/logs:/app/logs \
+  -e LLM_API_KEY=your_api_key_here \
+  -e LLM_MODEL=openai:gpt-4o-mini \
+  -e MESHCORE_CONNECTION_TYPE=serial \
+  -e MESHCORE_PORT=/dev/ttyUSB0 \
+  ghcr.io/ipnet-mesh/meshbot:latest
+
+# Run with custom configuration via .env file
+docker run -it --rm \
+  --env-file .env \
+  -v $(pwd)/logs:/app/logs \
+  ghcr.io/ipnet-mesh/meshbot:latest
+```
+
+### Docker Environment Variables
+
+All configuration is done via environment variables (see full list in [Configuration](#configuration)):
+
+```bash
+# Required
+LLM_API_KEY=your_api_key_here
+LLM_MODEL=openai:gpt-4o-mini
+
+# MeshCore Connection
+MESHCORE_CONNECTION_TYPE=mock  # or serial, tcp, ble
+MESHCORE_PORT=/dev/ttyUSB0     # for serial
+# MESHCORE_HOST=192.168.1.100  # for TCP
+
+# Optional
+LISTEN_CHANNEL=0
+MAX_MESSAGE_LENGTH=120
+LOG_LEVEL=INFO
+```
+
+### Docker Volumes
+
+Mount volumes to persist logs and use custom prompts:
+
+```bash
+docker run -it --rm \
+  -v $(pwd)/logs:/app/logs \
+  -v $(pwd)/my_prompt.txt:/app/custom_prompt.txt \
+  -e CUSTOM_PROMPT_FILE=/app/custom_prompt.txt \
+  --env-file .env \
+  ghcr.io/ipnet-mesh/meshbot:latest
+```
+
 ## Features
 
 - **🤖 AI-Powered**: Built with Pydantic AI for structured, type-safe agent development
@@ -14,10 +79,12 @@ MeshBot is an intelligent AI agent that communicates through the MeshCore networ
 - **📊 Situational Context**: Network events and node names included in LLM context for awareness
 - **💰 Cost Control**: API request limits (max 5 per message) to prevent excessive LLM usage
 - **⚙️ Configurable**: Flexible configuration via files and environment variables
-- **🎯 Message Routing**: Intelligent DM and channel message handling with activation phrases
+- **🎯 Message Routing**: Intelligent DM and channel message handling with @NodeName mentions
 - **🔌 OpenAI-Compatible**: Works with any OpenAI-compatible endpoint (OpenAI, Groq, Ollama, etc.)
 
-## Quick Start
+## Alternative: Install from Source
+
+For development or if you prefer not to use Docker:
 
 ### Installation
 
@@ -58,9 +125,9 @@ LLM_API_KEY=your_api_key_here
 # LLM_BASE_URL=http://localhost:11434/v1  # For Ollama or other endpoints
 
 # Bot Behavior
-ACTIVATION_PHRASE=@bot          # Required in channel messages
 LISTEN_CHANNEL=0                # Channel to monitor
 MAX_MESSAGE_LENGTH=120          # MeshCore message length limit
+# MESHCORE_NODE_NAME=MeshBot    # Bot will respond to @MeshBot mentions
 
 # MeshCore Configuration
 MESHCORE_CONNECTION_TYPE=mock
@@ -132,18 +199,18 @@ meshbot
 
 #### Direct Messages (DMs)
 - Bot **always** responds to direct messages
-- No activation phrase required
 - Each user gets a separate conversation log in `logs/dm_{user_id}.txt`
 
 #### Channel Messages
-- Bot only responds if message contains the activation phrase (default: `@bot`)
+- Bot only responds when mentioned by node name (e.g., `@MeshBot`)
 - Only monitors the configured listen channel (default: channel 0)
 - Shared conversation log in `logs/channel.txt`
+- Node name is set via `MESHCORE_NODE_NAME` environment variable
 
 Example:
 ```
-User: @bot what's the weather?     → Bot responds
-User: hello everyone              → Bot ignores (no activation phrase)
+User: @MeshBot what's the weather?  → Bot responds
+User: hello everyone                → Bot ignores (not mentioned)
 ```
 
 #### Message Length Limits
@@ -194,7 +261,6 @@ Create `config.json`:
     "base_url": null,
     "max_tokens": 500,
     "temperature": 0.7,
-    "activation_phrase": "@bot",
     "listen_channel": "0",
     "max_message_length": 120
   },
@@ -227,7 +293,7 @@ async def main():
     agent = MeshBotAgent(
         model="openai:gpt-4o-mini",
         meshcore_connection_type="mock",
-        activation_phrase="@assistant",
+        node_name="Assistant",  # Bot will respond to @Assistant mentions
         listen_channel="0",
         max_message_length=120,
         custom_prompt=custom_prompt
@@ -278,8 +344,10 @@ LLM_BASE_URL=http://localhost:11434/v1
 ### Message Behavior
 
 ```bash
+# Node name - bot responds to @NodeName mentions in channels
+MESHCORE_NODE_NAME=MeshBot
+
 # Channel settings
-ACTIVATION_PHRASE=@bot        # Phrase required in channel messages
 LISTEN_CHANNEL=0              # Which channel to monitor
 
 # Message length
@@ -396,9 +464,58 @@ See `AGENTS.md` for full development workflow including:
 
 ## Production Deployment
 
-### Real MeshCore Connection
+### Docker Deployment (Recommended)
 
-For production use with real MeshCore hardware:
+The recommended way to deploy MeshBot in production is using Docker:
+
+#### Using Docker Compose
+
+Create a `docker-compose.yml`:
+
+```yaml
+version: '3.8'
+
+services:
+  meshbot:
+    image: ghcr.io/ipnet-mesh/meshbot:latest
+    container_name: meshbot
+    restart: unless-stopped
+    devices:
+      - /dev/ttyUSB0:/dev/ttyUSB0  # For serial connection
+    volumes:
+      - ./logs:/app/logs
+      - ./custom_prompt.txt:/app/custom_prompt.txt:ro  # Optional
+    environment:
+      - LLM_MODEL=openai:gpt-4o-mini
+      - LLM_API_KEY=${LLM_API_KEY}
+      - MESHCORE_NODE_NAME=MeshBot
+      - MESHCORE_CONNECTION_TYPE=serial
+      - MESHCORE_PORT=/dev/ttyUSB0
+      - MAX_MESSAGE_LENGTH=120
+      - LOG_LEVEL=INFO
+    # Optionally use env_file instead:
+    # env_file:
+    #   - .env
+```
+
+Run with:
+```bash
+# Create .env file with your secrets
+echo "LLM_API_KEY=your_key_here" > .env
+
+# Start the service
+docker-compose up -d
+
+# View logs
+docker-compose logs -f
+
+# Stop the service
+docker-compose down
+```
+
+### Alternative: Direct Installation
+
+For production use with real MeshCore hardware without Docker:
 
 ```bash
 # Serial connection
@@ -417,50 +534,11 @@ meshbot --meshcore-type ble --meshcore-address XX:XX:XX:XX:XX:XX
 # Production environment variables
 export LLM_MODEL=openai:gpt-4o-mini
 export LLM_API_KEY=your_production_key
+export MESHCORE_NODE_NAME=MeshBot
 export MESHCORE_CONNECTION_TYPE=serial
 export MESHCORE_PORT=/dev/ttyUSB0
-export ACTIVATION_PHRASE=@meshbot
 export MAX_MESSAGE_LENGTH=120
 export LOG_LEVEL=INFO
-```
-
-### Systemd Service
-
-Create `/etc/systemd/system/meshbot.service`:
-
-```ini
-[Unit]
-Description=MeshBot AI Agent
-After=network.target
-
-[Service]
-Type=simple
-User=meshbot
-WorkingDirectory=/opt/meshbot
-Environment=PYTHONPATH=/opt/meshbot/src
-EnvironmentFile=/etc/meshbot/environment
-ExecStart=/opt/meshbot/.venv/bin/meshbot --meshcore-type serial
-Restart=always
-RestartSec=10
-
-[Install]
-WantedBy=multi-user.target
-```
-
-Create `/etc/meshbot/environment`:
-```
-LLM_MODEL=openai:gpt-4o-mini
-LLM_API_KEY=your_key_here
-MESHCORE_PORT=/dev/ttyUSB0
-ACTIVATION_PHRASE=@bot
-MAX_MESSAGE_LENGTH=120
-```
-
-Enable and start:
-```bash
-sudo systemctl enable meshbot
-sudo systemctl start meshbot
-sudo systemctl status meshbot
 ```
 
 ## Troubleshooting
@@ -471,7 +549,7 @@ sudo systemctl status meshbot
 2. **MeshCore Connection**: Check port permissions (`sudo usermod -a -G dialout $USER`)
 3. **API Keys**: Set `LLM_API_KEY` environment variable
 4. **Long Messages**: Adjust `MAX_MESSAGE_LENGTH` if messages are too short/long
-5. **Channel Not Responding**: Ensure messages include activation phrase (default `@bot`)
+5. **Channel Not Responding**: Ensure messages mention the bot's node name (e.g., `@MeshBot`)
 
 ### Debug Mode
 
