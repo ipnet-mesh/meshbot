@@ -95,8 +95,8 @@ def register_weather_tool(agent: Any) -> None:
             # Get forecast days from environment or parameter
             days = int(os.getenv("WEATHER_FORECAST_DAYS", str(forecast_days)))
 
-            # Build Open-Meteo API URL
-            url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&forecast_days={days}&hourly=temperature_2m,precipitation_probability,wind_speed_10m"
+            # Build Open-Meteo API URL - request daily data
+            url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current=temperature_2m,wind_speed_10m,precipitation&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max,wind_speed_10m_max&forecast_days={days}&timezone=auto"
             logger.info(f"🌐 Open-Meteo API request: {url}")
 
             # Make HTTP request
@@ -106,66 +106,52 @@ def register_weather_tool(agent: Any) -> None:
                     logger.info(f"🌐 Making HTTP request to: {url}")
                     async with session.get(url, timeout=15) as response:
                         logger.info(f"🌐 HTTP response status: {response.status}")
-                        if response.status == 200:
-                            data = await response.json()
-                            logger.info(
-                                f"🌐 Open-Meteo response received: {len(str(data))} chars"
-                            )
+                        if response.status != 200:
+                            logger.error(f"🌐 HTTP error: {response.status}")
+                            return f"Weather service error: HTTP {response.status}"
 
-                        # Extract forecast data
-                        if not data or "forecast" not in data:
-                            logger.error(f"🌐 No forecast field in response: {data}")
-                            return "Weather forecast data unavailable"
-
-                        forecast_data = data["forecast"]
-                        if not forecast_data:
-                            logger.error(f"🌐 No forecast data in response: {data}")
-                            return "No forecast data available"
-
-                        # Process current weather and forecast
-                        current = forecast_data[0] if forecast_data else {}
-                        temp_current = current.get("temperature", {}).get(
-                            "celsius", "N/A"
+                        data = await response.json()
+                        logger.info(
+                            f"🌐 Open-Meteo response received: {len(str(data))} chars"
                         )
-                        wind_current = (
-                            current.get("wind", {}).get("speed", {}).get("10m", 0)
-                            * 2.237
-                        )  # Convert m/s to mph
-                        precip_prob = (
-                            current.get("precipitation", {})
-                            .get("probability", {})
-                            .get("12h", 0)
-                            * 100
-                        )
+
+                        # Extract current weather
+                        if "current" not in data:
+                            logger.error(f"🌐 No current field in response: {data.keys()}")
+                            return "Weather data unavailable"
+
+                        current = data["current"]
+                        temp_current = current.get("temperature_2m", "N/A")
+                        wind_current = current.get("wind_speed_10m", 0) * 2.237  # Convert m/s to mph
+                        precip_current = current.get("precipitation", 0)
+
+                        # Extract daily forecast
+                        daily = data.get("daily", {})
+                        if not daily:
+                            logger.error(f"🌐 No daily field in response")
+                            return "Forecast data unavailable"
+
+                        dates = daily.get("time", [])
+                        temp_max = daily.get("temperature_2m_max", [])
+                        temp_min = daily.get("temperature_2m_min", [])
+                        precip_prob = daily.get("precipitation_probability_max", [])
+                        wind_max = daily.get("wind_speed_10m_max", [])
 
                         # Build forecast summary
                         forecast_summary = ""
-                        for day_data in forecast_data[1 : days + 1]:
-                            day_temp = day_data.get("temperature", {}).get(
-                                "celsius", "N/A"
-                            )
-                            day_precip = (
-                                day_data.get("precipitation", {})
-                                .get("probability", {})
-                                .get("12h", 0)
-                                * 100
-                            )
-                            day_wind = (
-                                day_data.get("wind", {}).get("speed", {}).get("10m", 0)
-                                * 2.237
-                            )
-                            date = day_data.get("date", "Unknown")
+                        for i in range(min(days, len(dates))):
+                            date_str = dates[i] if i < len(dates) else "?"
+                            max_temp = temp_max[i] if i < len(temp_max) else "?"
+                            min_temp = temp_min[i] if i < len(temp_min) else "?"
+                            rain_prob = precip_prob[i] if i < len(precip_prob) else 0
+                            wind_mph = (wind_max[i] if i < len(wind_max) else 0) * 2.237
 
-                            if date != "Unknown":
-                                forecast_summary += f"{date}: {day_temp}°C, {day_precip:.0f}% rain, {day_wind:.1f}mph\n"
+                            forecast_summary += f"{date_str}: {min_temp}-{max_temp}C {rain_prob}% rain {wind_mph:.0f}mph\n"
 
-                        # Format result
+                        # Format result (concise for mesh network)
                         result = (
-                            f"Weather for {location.replace('_', ' ').title()}:\n"
-                            f"🌡 {temp_current}°C\n"
-                            f"💨 {wind_current:.1f}mph\n"
-                            f"🌧️ {precip_prob:.0f}% rain chance\n"
-                            f"📅 {days}-day forecast:\n{forecast_summary}"
+                            f"{location.title()}: {temp_current}C wind {wind_current:.0f}mph rain {precip_current}mm\n"
+                            f"{forecast_summary.strip()}"
                         )
 
                         logger.info(
@@ -174,7 +160,7 @@ def register_weather_tool(agent: Any) -> None:
                         return result.strip()
             except Exception as http_err:
                 logger.error(f"🌐 HTTP request failed: {http_err}")
-                return "Weather service unavailable (HTTP error)"
+                return "Weather service unavailable. Please try again later."
 
         except Exception as e:
             logger.error(f"Error getting weather: {e}")
