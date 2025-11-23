@@ -24,6 +24,12 @@ class MeshBotStorage:
         self.data_path = data_path
         self.data_path.mkdir(parents=True, exist_ok=True)
 
+        # Create subdirectories
+        self.nodes_dir = self.data_path / "nodes"
+        self.channels_dir = self.data_path / "channels"
+        self.nodes_dir.mkdir(exist_ok=True)
+        self.channels_dir.mkdir(exist_ok=True)
+
         # File paths
         self.adverts_file = self.data_path / "adverts.csv"
 
@@ -50,17 +56,57 @@ class MeshBotStorage:
 
     # ========== Helper Methods ==========
 
+    def _is_channel_id(self, conversation_id: str) -> bool:
+        """
+        Determine if conversation_id is a channel number.
+        Channels are numeric strings (0, 1, 2, etc.)
+        """
+        return conversation_id.isdigit()
+
+    def _get_node_prefix(self, pubkey: str) -> str:
+        """Get the first 16 characters of a public key for directory naming."""
+        # Sanitize pubkey (remove non-alphanumeric) and take first 16 chars
+        safe_key = "".join(c for c in pubkey if c.isalnum())
+        return safe_key[:16]
+
+    def _get_node_dir(self, pubkey: str) -> Path:
+        """Get the directory path for a node."""
+        prefix = self._get_node_prefix(pubkey)
+        node_dir = self.nodes_dir / prefix
+        node_dir.mkdir(parents=True, exist_ok=True)
+        return node_dir
+
+    def _get_channel_dir(self, channel_number: str) -> Path:
+        """Get the directory path for a channel."""
+        channel_dir = self.channels_dir / channel_number
+        channel_dir.mkdir(parents=True, exist_ok=True)
+        return channel_dir
+
+    def _get_messages_file(self, conversation_id: str, message_type: str = "direct") -> Path:
+        """
+        Get the messages file path for a conversation.
+
+        Args:
+            conversation_id: Channel number or node pubkey
+            message_type: "direct", "channel", or "broadcast"
+
+        Returns:
+            Path to messages.txt file
+        """
+        if message_type == "channel" or self._is_channel_id(conversation_id):
+            # Channel: data/channels/{number}/messages.txt
+            return self._get_channel_dir(conversation_id) / "messages.txt"
+        else:
+            # Node: data/nodes/{pubkey_prefix}/messages.txt
+            return self._get_node_dir(conversation_id) / "messages.txt"
+
     def _get_user_messages_file(self, user_id: str) -> Path:
-        """Get the messages file path for a user."""
-        # Sanitize user_id to create safe filename
-        safe_id = "".join(c if c.isalnum() else "_" for c in user_id)
-        return self.data_path / f"{safe_id}_messages.txt"
+        """Get the messages file path for a user (node)."""
+        return self._get_node_dir(user_id) / "messages.txt"
 
     def _get_user_memory_file(self, user_id: str) -> Path:
-        """Get the memory file path for a user."""
-        # Sanitize user_id to create safe filename
-        safe_id = "".join(c if c.isalnum() else "_" for c in user_id)
-        return self.data_path / f"{safe_id}_memory.json"
+        """Get the memory file path for a user (node)."""
+        return self._get_node_dir(user_id) / "node.json"
 
     # ========== Messages ==========
 
@@ -74,7 +120,7 @@ class MeshBotStorage:
         sender: Optional[str] = None,
     ) -> None:
         """
-        Add a message to the user's message file.
+        Add a message to the conversation's message file.
 
         Args:
             conversation_id: Conversation/user/channel ID
@@ -88,7 +134,7 @@ class MeshBotStorage:
             timestamp = time.time()
 
         try:
-            messages_file = self._get_user_messages_file(conversation_id)
+            messages_file = self._get_messages_file(conversation_id, message_type)
 
             # Append message to file
             # Format: timestamp|message_type|role|content|sender
@@ -125,7 +171,11 @@ class MeshBotStorage:
             List of message dicts with keys: role, content, timestamp, sender
         """
         try:
-            messages_file = self._get_user_messages_file(conversation_id)
+            # Determine if it's a channel or node
+            if self._is_channel_id(conversation_id):
+                messages_file = self._get_channel_dir(conversation_id) / "messages.txt"
+            else:
+                messages_file = self._get_user_messages_file(conversation_id)
 
             if not messages_file.exists():
                 return []
@@ -193,17 +243,33 @@ class MeshBotStorage:
 
             # Determine which files to search
             if conversation_id:
-                files_to_search = [self._get_user_messages_file(conversation_id)]
+                # Determine if it's a channel or node
+                if self._is_channel_id(conversation_id):
+                    files_to_search = [self._get_channel_dir(conversation_id) / "messages.txt"]
+                else:
+                    files_to_search = [self._get_node_dir(conversation_id) / "messages.txt"]
             else:
-                # Search all message files
-                files_to_search = list(self.data_path.glob("*_messages.txt"))
+                # Search all message files (both nodes and channels)
+                files_to_search = []
+                # Search node directories
+                for node_dir in self.nodes_dir.glob("*/"):
+                    msg_file = node_dir / "messages.txt"
+                    if msg_file.exists():
+                        files_to_search.append(msg_file)
+                # Search channel directories
+                for channel_dir in self.channels_dir.glob("*/"):
+                    msg_file = channel_dir / "messages.txt"
+                    if msg_file.exists():
+                        files_to_search.append(msg_file)
 
             for messages_file in files_to_search:
                 if not messages_file.exists():
                     continue
 
-                # Extract conversation_id from filename
-                file_conv_id = messages_file.stem.replace("_messages", "")
+                # Extract conversation_id from parent directory name
+                # For nodes: data/nodes/{prefix}/messages.txt -> use prefix
+                # For channels: data/channels/{number}/messages.txt -> use number
+                file_conv_id = messages_file.parent.name
 
                 with open(messages_file, "r", encoding="utf-8") as f:
                     for line in f:
@@ -262,7 +328,11 @@ class MeshBotStorage:
             Dict with total_messages, first_seen, last_seen
         """
         try:
-            messages_file = self._get_user_messages_file(conversation_id)
+            # Determine if it's a channel or node
+            if self._is_channel_id(conversation_id):
+                messages_file = self._get_channel_dir(conversation_id) / "messages.txt"
+            else:
+                messages_file = self._get_user_messages_file(conversation_id)
 
             if not messages_file.exists():
                 return {
@@ -304,8 +374,17 @@ class MeshBotStorage:
     async def get_all_statistics(self) -> Dict[str, Any]:
         """Get overall statistics."""
         try:
-            # Count all message files
-            message_files = list(self.data_path.glob("*_messages.txt"))
+            # Count all message files from nodes and channels
+            message_files = []
+            for node_dir in self.nodes_dir.glob("*/"):
+                msg_file = node_dir / "messages.txt"
+                if msg_file.exists():
+                    message_files.append(msg_file)
+            for channel_dir in self.channels_dir.glob("*/"):
+                msg_file = channel_dir / "messages.txt"
+                if msg_file.exists():
+                    message_files.append(msg_file)
+
             total_conversations = len(message_files)
 
             total_messages = 0
@@ -507,22 +586,26 @@ class MeshBotStorage:
         Get all node name mappings.
 
         Returns:
-            List of (pubkey, name) tuples ordered by most recent
+            List of (pubkey_prefix, name) tuples ordered by most recent
         """
         try:
-            memory_files = list(self.data_path.glob("*_memory.json"))
             node_names = []
 
-            for memory_file in memory_files:
+            # Search all node directories
+            for node_dir in self.nodes_dir.glob("*/"):
+                memory_file = node_dir / "node.json"
+                if not memory_file.exists():
+                    continue
+
                 try:
                     with open(memory_file, "r", encoding="utf-8") as f:
                         memory = json.load(f)
 
                     if "name" in memory:
-                        pubkey = memory_file.stem.replace("_memory", "")
+                        pubkey_prefix = node_dir.name
                         name = memory["name"]
                         timestamp = memory.get("name_timestamp", 0)
-                        node_names.append((pubkey, name, timestamp))
+                        node_names.append((pubkey_prefix, name, timestamp))
                 except Exception:
                     continue
 
@@ -670,15 +753,19 @@ class MeshBotStorage:
             List of node dicts
         """
         try:
-            memory_files = list(self.data_path.glob("*_memory.json"))
             nodes = []
 
-            for memory_file in memory_files:
+            # Search all node directories
+            for node_dir in self.nodes_dir.glob("*/"):
+                memory_file = node_dir / "node.json"
+                if not memory_file.exists():
+                    continue
+
                 try:
                     with open(memory_file, "r", encoding="utf-8") as f:
                         memory = json.load(f)
 
-                    pubkey = memory_file.stem.replace("_memory", "")
+                    pubkey_prefix = node_dir.name
 
                     # Apply filters
                     if online_only and not memory.get("is_online", False):
@@ -688,7 +775,7 @@ class MeshBotStorage:
 
                     nodes.append(
                         {
-                            "pubkey": pubkey,
+                            "pubkey": pubkey_prefix,
                             "name": memory.get("name"),
                             "is_online": memory.get("is_online", False),
                             "first_seen": memory.get("first_seen"),
