@@ -51,7 +51,7 @@ class MeshBotAgent:
         data_dir: Optional[Path] = None,
         meshcore_connection_type: str = "mock",
         listen_channel: str = "0",
-        custom_prompt: Optional[str] = None,
+        system_prompt_file: Optional[Path] = None,
         base_url: Optional[str] = None,
         max_message_length: int = 120,
         node_name: Optional[str] = None,
@@ -61,7 +61,7 @@ class MeshBotAgent:
         self.data_dir = data_dir
         self.meshcore_connection_type = meshcore_connection_type
         self.listen_channel = listen_channel
-        self.custom_prompt = custom_prompt
+        self.system_prompt_file = system_prompt_file or Path("prompts/default.md")
         self.base_url = base_url
         self.max_message_length = max_message_length
         self.node_name = node_name
@@ -130,55 +130,19 @@ class MeshBotAgent:
         await self.memory.load()
 
         # Load system prompt from file
-        data_dir = self.data_dir or Path("data")
-        system_prompt_file = data_dir / "system_prompt.txt"
-
-        # Create default system prompt if it doesn't exist
-        if not system_prompt_file.exists():
-            data_dir.mkdir(parents=True, exist_ok=True)
-            default_prompt = (
-                "You are MeshBot, an AI assistant that communicates through the MeshCore network. "
-                "You are helpful, concise, and knowledgeable. "
-                "MeshCore is a simple text messaging system with some limitations:\n"
-                f"- Keep responses concise and clear (prefer under 200 chars, max {self.max_message_length})\n"
-                "- Use newlines for better readability when helpful\n"
-                "- NO emoji, but you CAN use basic punctuation like • — – for lists and separation\n"
-                "- Use plain text with good structure\n"
-                "- Be direct and helpful\n"
-                "- Use tools ONLY when absolutely necessary - prefer direct responses\n"
-                "- Maximum 1-2 tool calls per message, avoid chains\n"
-                "- For simple questions, respond directly without tools\n"
-                "- IMPORTANT: When calling weather API, make the HTTP request INSIDE the tool, don't call the tool repeatedly\n"
-                "- CRITICAL: get_weather tool makes HTTP request automatically - call it ONCE only\n"
-                "When users send 'ping', respond with 'pong'\n"
-                "\n"
-                "Examples of good formatting:\n"
-                "Status: Connected • 20 contacts online • 51 messages processed\n"
-                "Time: 14:30 • Date: 2025-01-15\n"
-                "Result: Success • Data saved • Ready for next task\n"
-                "Nodes found: 12 online • 8 with names • 4 new today\n"
-            )
-            with open(system_prompt_file, "w", encoding="utf-8") as f:
-                f.write(default_prompt)
-            logger.info(f"Created default system prompt: {system_prompt_file}")
-
-        # Load system prompt from file
         try:
-            with open(system_prompt_file, "r", encoding="utf-8") as f:
-                base_instructions = f.read()
-            logger.info(f"Loaded system prompt from: {system_prompt_file}")
+            if not self.system_prompt_file.exists():
+                raise FileNotFoundError(
+                    f"System prompt file not found: {self.system_prompt_file}"
+                )
+
+            with open(self.system_prompt_file, "r", encoding="utf-8") as f:
+                instructions = f.read()
+            logger.info(f"Loaded system prompt from: {self.system_prompt_file}")
         except Exception as e:
             logger.error(f"Error loading system prompt: {e}")
-            # Fall back to default
-            base_instructions = "You are MeshBot, an AI assistant that communicates through the MeshCore network."
-
-        # Add custom prompt if provided
-        if self.custom_prompt:
-            instructions = (
-                f"{base_instructions}\n\nAdditional Context:\n{self.custom_prompt}"
-            )
-        else:
-            instructions = base_instructions
+            # Fall back to minimal default
+            instructions = "You are MeshBot, an AI assistant that communicates through the MeshCore network."
 
         # Set base URL for custom endpoints if provided
         if self.base_url:

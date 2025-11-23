@@ -62,13 +62,17 @@ class AIConfig:
     max_message_length: int = field(
         default_factory=lambda: int(os.getenv("MAX_MESSAGE_LENGTH", "120"))
     )
-    custom_prompt_file: Optional[Path] = field(default=None)
+    system_prompt_file: Optional[Path] = field(default=None)
 
     def __post_init__(self) -> None:
-        """Post-initialization to handle custom_prompt_file."""
-        prompt_file_env = os.getenv("CUSTOM_PROMPT_FILE")
-        if prompt_file_env and not self.custom_prompt_file:
-            self.custom_prompt_file = Path(prompt_file_env)
+        """Post-initialization to handle system prompt file."""
+        # Handle system prompt file
+        system_prompt_env = os.getenv("LLM_PROMPT_FILE")
+        if system_prompt_env and not self.system_prompt_file:
+            self.system_prompt_file = Path(system_prompt_env)
+        elif not self.system_prompt_file:
+            # Default to prompts/default.md
+            self.system_prompt_file = Path("prompts/default.md")
 
 
 @dataclass
