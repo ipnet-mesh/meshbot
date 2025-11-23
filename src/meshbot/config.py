@@ -18,6 +18,9 @@ class MeshCoreConfig:
     connection_type: str = field(
         default_factory=lambda: os.getenv("MESHCORE_CONNECTION_TYPE", "mock")
     )
+    node_name: Optional[str] = field(
+        default_factory=lambda: os.getenv("MESHCORE_NODE_NAME", "MeshBot")
+    )
     port: Optional[str] = field(default_factory=lambda: os.getenv("MESHCORE_PORT"))
     baudrate: int = field(
         default_factory=lambda: int(os.getenv("MESHCORE_BAUDRATE", "115200"))
@@ -170,20 +173,18 @@ class MeshBotConfig:
 
 
 def get_default_config() -> MeshBotConfig:
-    """Get default configuration."""
+    """Get default configuration from environment variables."""
     return MeshBotConfig()
 
 
-def load_config(config_path: Optional[Path] = None) -> MeshBotConfig:
-    """Load configuration from file or environment."""
-    if config_path and config_path.exists():
-        config = MeshBotConfig.from_file(config_path)
-    else:
-        config = get_default_config()
+def load_config() -> MeshBotConfig:
+    """Load configuration from environment variables.
 
-    # Override with environment variables
-    if os.getenv("MESHBOT_CONFIG"):
-        config = MeshBotConfig.from_file(Path(os.getenv("MESHBOT_CONFIG")))
-
+    Configuration priority:
+    1. Command-line arguments (handled by caller)
+    2. Environment variables (loaded here)
+    3. Default values (defined in dataclass field defaults)
+    """
+    config = get_default_config()
     config.validate()
     return config

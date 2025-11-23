@@ -54,20 +54,31 @@ def cli() -> None:
 
 
 @cli.command()
-@click.option(
-    "--config",
-    "-c",
-    type=click.Path(exists=True, path_type=Path),
-    help="Path to configuration file",
-)
 @click.option("--model", "-m", help="AI model to use (e.g., openai:gpt-4o-mini)")
+@click.option("--activation-phrase", help="Activation phrase for channel messages")
+@click.option("--listen-channel", help="Channel to listen to (e.g., 0 for General)")
+@click.option(
+    "--max-message-length", type=int, help="Maximum message length in characters"
+)
 @click.option(
     "--meshcore-type",
     type=click.Choice(["mock", "serial", "tcp", "ble"]),
     help="MeshCore connection type",
 )
+@click.option("--node-name", help="Node name to advertise on the mesh network")
 @click.option("--meshcore-port", help="Serial port for MeshCore connection")
 @click.option("--meshcore-host", help="TCP host for MeshCore connection")
+@click.option("--meshcore-address", help="BLE address for MeshCore connection")
+@click.option("--meshcore-baudrate", type=int, help="Serial baudrate (default: 115200)")
+@click.option(
+    "--meshcore-debug", is_flag=True, help="Enable MeshCore debug logging"
+)
+@click.option(
+    "--meshcore-auto-reconnect/--no-meshcore-auto-reconnect",
+    default=None,
+    help="Enable/disable MeshCore auto-reconnect",
+)
+@click.option("--meshcore-timeout", type=int, help="MeshCore timeout in seconds")
 @click.option(
     "--memory-path", type=click.Path(path_type=Path), help="Memory storage file path"
 )
@@ -83,11 +94,19 @@ def cli() -> None:
     "--log-file", type=click.Path(path_type=Path), help="Log file path"
 )
 def run(
-    config: Optional[Path],
     model: Optional[str],
+    activation_phrase: Optional[str],
+    listen_channel: Optional[str],
+    max_message_length: Optional[int],
     meshcore_type: Optional[str],
+    node_name: Optional[str],
     meshcore_port: Optional[str],
     meshcore_host: Optional[str],
+    meshcore_address: Optional[str],
+    meshcore_baudrate: Optional[int],
+    meshcore_debug: bool,
+    meshcore_auto_reconnect: Optional[bool],
+    meshcore_timeout: Optional[int],
     memory_path: Optional[Path],
     custom_prompt: Optional[Path],
     verbose: int,
@@ -107,23 +126,46 @@ def run(
     setup_logging(level, log_file)
     logger = logging.getLogger(__name__)
 
-    # Load configuration
+    # Load configuration from environment variables
     try:
-        app_config = load_config(config)
+        app_config = load_config()
 
-        # Override with command line arguments
+        # Override with command line arguments (highest priority)
+        # AI configuration
         if model:
             app_config.ai.model = model
+        if activation_phrase:
+            app_config.ai.activation_phrase = activation_phrase
+        if listen_channel:
+            app_config.ai.listen_channel = listen_channel
+        if max_message_length:
+            app_config.ai.max_message_length = max_message_length
+        if custom_prompt:
+            app_config.ai.custom_prompt_file = custom_prompt
+
+        # MeshCore configuration
         if meshcore_type:
             app_config.meshcore.connection_type = meshcore_type
+        if node_name:
+            app_config.meshcore.node_name = node_name
         if meshcore_port:
             app_config.meshcore.port = meshcore_port
         if meshcore_host:
             app_config.meshcore.host = meshcore_host
+        if meshcore_address:
+            app_config.meshcore.address = meshcore_address
+        if meshcore_baudrate:
+            app_config.meshcore.baudrate = meshcore_baudrate
+        if meshcore_debug:
+            app_config.meshcore.debug = meshcore_debug
+        if meshcore_auto_reconnect is not None:
+            app_config.meshcore.auto_reconnect = meshcore_auto_reconnect
+        if meshcore_timeout:
+            app_config.meshcore.timeout = meshcore_timeout
+
+        # Memory configuration
         if memory_path:
             app_config.memory.storage_path = memory_path
-        if custom_prompt:
-            app_config.ai.custom_prompt_file = custom_prompt
 
     except Exception as e:
         logger.error(f"Error loading configuration: {e}")
@@ -149,6 +191,7 @@ def run(
         max_message_length=app_config.ai.max_message_length,
         custom_prompt=custom_prompt,
         base_url=app_config.ai.base_url,
+        node_name=app_config.meshcore.node_name,
         port=app_config.meshcore.port,
         baudrate=app_config.meshcore.baudrate,
         host=app_config.meshcore.host,
@@ -202,11 +245,11 @@ async def run_agent(agent: MeshBotAgent) -> None:
 @cli.command()
 @click.argument("from_id")
 @click.argument("message")
+@click.option("--model", "-m", help="AI model to use (e.g., openai:gpt-4o-mini)")
+@click.option("--activation-phrase", help="Activation phrase for channel messages")
+@click.option("--listen-channel", help="Channel to listen to (e.g., 0 for General)")
 @click.option(
-    "--config",
-    "-c",
-    type=click.Path(exists=True, path_type=Path),
-    help="Path to configuration file",
+    "--max-message-length", type=int, help="Maximum message length in characters"
 )
 @click.option(
     "--meshcore-type",
@@ -214,8 +257,23 @@ async def run_agent(agent: MeshBotAgent) -> None:
     default="mock",
     help="MeshCore connection type (default: mock)",
 )
+@click.option("--node-name", help="Node name to advertise on the mesh network")
 @click.option("--meshcore-port", help="Serial port for MeshCore connection")
 @click.option("--meshcore-host", help="TCP host for MeshCore connection")
+@click.option("--meshcore-address", help="BLE address for MeshCore connection")
+@click.option("--meshcore-baudrate", type=int, help="Serial baudrate (default: 115200)")
+@click.option(
+    "--meshcore-debug", is_flag=True, help="Enable MeshCore debug logging"
+)
+@click.option(
+    "--meshcore-auto-reconnect/--no-meshcore-auto-reconnect",
+    default=None,
+    help="Enable/disable MeshCore auto-reconnect",
+)
+@click.option("--meshcore-timeout", type=int, help="MeshCore timeout in seconds")
+@click.option(
+    "--memory-path", type=click.Path(path_type=Path), help="Memory storage file path"
+)
 @click.option(
     "--custom-prompt",
     type=click.Path(exists=True, path_type=Path),
@@ -230,10 +288,20 @@ async def run_agent(agent: MeshBotAgent) -> None:
 def test(
     from_id: str,
     message: str,
-    config: Optional[Path],
+    model: Optional[str],
+    activation_phrase: Optional[str],
+    listen_channel: Optional[str],
+    max_message_length: Optional[int],
     meshcore_type: str,
+    node_name: Optional[str],
     meshcore_port: Optional[str],
     meshcore_host: Optional[str],
+    meshcore_address: Optional[str],
+    meshcore_baudrate: Optional[int],
+    meshcore_debug: bool,
+    meshcore_auto_reconnect: Optional[bool],
+    meshcore_timeout: Optional[int],
+    memory_path: Optional[Path],
     custom_prompt: Optional[Path],
     verbose: int,
 ) -> None:
@@ -251,18 +319,47 @@ def test(
     else:
         level = "INFO"
 
-    # Load configuration
+    # Load configuration from environment variables
     try:
-        app_config = load_config(config)
+        app_config = load_config()
 
-        # Override with command line arguments
+        # Override with command line arguments (highest priority)
+        # AI configuration
+        if model:
+            app_config.ai.model = model
+        if activation_phrase:
+            app_config.ai.activation_phrase = activation_phrase
+        if listen_channel:
+            app_config.ai.listen_channel = listen_channel
+        if max_message_length:
+            app_config.ai.max_message_length = max_message_length
+        if custom_prompt:
+            app_config.ai.custom_prompt_file = custom_prompt
+
+        # MeshCore configuration
         app_config.meshcore.connection_type = meshcore_type
+        if node_name:
+            app_config.meshcore.node_name = node_name
         if meshcore_port:
             app_config.meshcore.port = meshcore_port
         if meshcore_host:
             app_config.meshcore.host = meshcore_host
-        if custom_prompt:
-            app_config.ai.custom_prompt_file = custom_prompt
+        if meshcore_address:
+            app_config.meshcore.address = meshcore_address
+        if meshcore_baudrate:
+            app_config.meshcore.baudrate = meshcore_baudrate
+        if meshcore_debug:
+            app_config.meshcore.debug = meshcore_debug
+        if meshcore_auto_reconnect is not None:
+            app_config.meshcore.auto_reconnect = meshcore_auto_reconnect
+        if meshcore_timeout:
+            app_config.meshcore.timeout = meshcore_timeout
+
+        # Memory configuration
+        if memory_path:
+            app_config.memory.storage_path = memory_path
+
+        # Logging configuration
         app_config.logging.level = level
 
     except Exception as e:
@@ -309,6 +406,7 @@ def test(
             max_message_length=app_config.ai.max_message_length,
             custom_prompt=custom_prompt,
             base_url=app_config.ai.base_url,
+            node_name=app_config.meshcore.node_name,
             port=app_config.meshcore.port,
             baudrate=app_config.meshcore.baudrate,
             host=app_config.meshcore.host,

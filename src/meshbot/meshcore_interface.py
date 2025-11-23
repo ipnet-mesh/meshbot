@@ -86,8 +86,18 @@ class MeshCoreInterface(ABC):
         pass
 
     @abstractmethod
+    async def set_node_name(self, name: str) -> bool:
+        """Set the node's advertised name."""
+        pass
+
+    @abstractmethod
     async def get_own_public_key(self) -> Optional[str]:
         """Get the bot's own public key/identifier."""
+        pass
+
+    @abstractmethod
+    async def get_own_node_name(self) -> Optional[str]:
+        """Get the bot's own node name (advertised name)."""
         pass
 
     @abstractmethod
@@ -188,6 +198,11 @@ class MockMeshCoreInterface(MeshCoreInterface):
         await asyncio.sleep(0.1)
         return True
 
+    async def set_node_name(self, name: str) -> bool:
+        """Mock set node name (does nothing)."""
+        logger.info(f"Mock: Would set node name to: {name}")
+        return True
+
     def is_connected(self) -> bool:
         """Check if mock connected."""
         return self._connected
@@ -199,6 +214,10 @@ class MockMeshCoreInterface(MeshCoreInterface):
     async def get_own_public_key(self) -> Optional[str]:
         """Get the bot's own public key."""
         return self._own_public_key
+
+    async def get_own_node_name(self) -> Optional[str]:
+        """Get the bot's own node name (mock returns None)."""
+        return None  # Mock doesn't have a node name
 
     def get_recent_network_events(self, limit: int = 10) -> List[str]:
         """Get recent network events for context (mock returns empty)."""
@@ -238,6 +257,7 @@ class RealMeshCoreInterface(MeshCoreInterface):
         self._meshcore = None
         self._connected = False
         self._own_public_key: Optional[str] = None
+        self._own_node_name: Optional[str] = None
         self._message_handlers: List[Callable[[MeshCoreMessage], Any]] = []
 
         # Network event logging
@@ -311,13 +331,15 @@ class RealMeshCoreInterface(MeshCoreInterface):
             # Sync node names from contacts list (leverages automatic contact discovery)
             await self._sync_node_names_from_contacts()
 
-            # Get bot's own public key for message filtering
+            # Get bot's own public key and node name for message filtering
             try:
                 self_info = self._meshcore.self_info
                 if self_info and isinstance(self_info, dict):
                     self._own_public_key = self_info.get("public_key") or self_info.get(
                         "pubkey_prefix"
                     )
+                    self._own_node_name = self_info.get("adv_name")
+
                     if self._own_public_key:
                         logger.info(f"Bot public key: {self._own_public_key[:16]}...")
                     else:
@@ -325,14 +347,21 @@ class RealMeshCoreInterface(MeshCoreInterface):
                             "self_info does not contain public_key or pubkey_prefix"
                         )
                         self._own_public_key = None
+
+                    if self._own_node_name:
+                        logger.info(f"Bot node name: {self._own_node_name}")
+                    else:
+                        logger.info("Bot node name not set (adv_name not in self_info)")
                 else:
                     logger.warning(
                         f"self_info returned unexpected type: {type(self_info)}"
                     )
                     self._own_public_key = None
+                    self._own_node_name = None
             except Exception as e:
-                logger.warning(f"Could not retrieve own public key: {e}")
+                logger.warning(f"Could not retrieve self info: {e}")
                 self._own_public_key = None
+                self._own_node_name = None
 
             self._connected = True
             logger.info(
@@ -460,6 +489,26 @@ class RealMeshCoreInterface(MeshCoreInterface):
             logger.error(f"Failed to send local advert: {e}")
             return False
 
+    async def set_node_name(self, name: str) -> bool:
+        """Set the node's advertised name."""
+        if not self._connected or not self._meshcore:
+            return False
+
+        try:
+            logger.info(f"Setting node name to: {name}")
+            result = await self._meshcore.commands.set_name(name)
+            if result is not None:
+                # Update our cached node name
+                self._own_node_name = name
+                logger.info(f"Node name set successfully to: {name}")
+                return True
+            else:
+                logger.warning("set_name command returned None")
+                return False
+        except Exception as e:
+            logger.error(f"Failed to set node name: {e}")
+            return False
+
     def add_message_handler(self, handler: Callable[[MeshCoreMessage], Any]) -> None:
         """Add handler for incoming messages."""
         self._message_handlers.append(handler)
@@ -467,6 +516,10 @@ class RealMeshCoreInterface(MeshCoreInterface):
     async def get_own_public_key(self) -> Optional[str]:
         """Get the bot's own public key."""
         return self._own_public_key
+
+    async def get_own_node_name(self) -> Optional[str]:
+        """Get the bot's own node name (advertised name)."""
+        return self._own_node_name
 
     async def _on_message_received(self, event) -> None:
         """Handle incoming message events."""

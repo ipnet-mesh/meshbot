@@ -55,6 +55,7 @@ class MeshBotAgent:
         custom_prompt: Optional[str] = None,
         base_url: Optional[str] = None,
         max_message_length: int = 120,
+        node_name: Optional[str] = None,
         **meshcore_kwargs,
     ):
         self.model = model
@@ -65,6 +66,7 @@ class MeshBotAgent:
         self.custom_prompt = custom_prompt
         self.base_url = base_url
         self.max_message_length = max_message_length
+        self.node_name = node_name
         self.meshcore_kwargs = meshcore_kwargs
 
         # Initialize components
@@ -537,17 +539,46 @@ class MeshBotAgent:
         except Exception as e:
             logger.warning(f"Could not retrieve own public key: {e}")
 
+        # Set node name if configured (must be done BEFORE sending local advert)
+        if self.node_name:
+            try:
+                logger.info(f"Setting node name to: {self.node_name}")
+                success = await self.meshcore.set_node_name(self.node_name)
+                if not success:
+                    logger.warning("Failed to set node name")
+            except Exception as e:
+                logger.warning(f"Could not set node name: {e}")
+
         # Sync companion node clock
         try:
             await self.meshcore.sync_time()
         except Exception as e:
             logger.warning(f"Clock sync failed: {e}")
 
-        # Send local advertisement to announce presence
+        # Send local advertisement to announce presence (after setting name)
         try:
             await self.meshcore.send_local_advert()
         except Exception as e:
             logger.warning(f"Local advert failed: {e}")
+
+        # Get bot's own node name and use it as activation phrase
+        try:
+            node_name = await self.meshcore.get_own_node_name()
+            if node_name:
+                # Use the node name with @ prefix as activation phrase
+                self.activation_phrase = f"@{node_name}".lower()
+                logger.info(
+                    f"Using node name as activation phrase: {self.activation_phrase}"
+                )
+            else:
+                logger.info(
+                    f"Node name not set, using configured activation phrase: {self.activation_phrase}"
+                )
+        except Exception as e:
+            logger.warning(f"Could not retrieve node name: {e}")
+            logger.info(
+                f"Using configured activation phrase: {self.activation_phrase}"
+            )
 
         self._running = True
         logger.info("MeshBot agent started successfully")
@@ -660,10 +691,25 @@ class MeshBotAgent:
                 return False
 
             # Check for activation phrase (case-insensitive)
-            if self.activation_phrase.lower() in message.content.lower():
+            # MeshCore wraps node names in brackets when tagged, so check both formats:
+            # 1. @nodename (simple format)
+            # 2. @[nodename] (MeshCore tagged format)
+            content_lower = message.content.lower()
+            activation_lower = self.activation_phrase.lower()
+
+            # Direct match
+            if activation_lower in content_lower:
                 return True
-            else:
-                return False
+
+            # Check for bracketed format: @[nodename]
+            # Extract node name without @ prefix
+            if activation_lower.startswith('@'):
+                node_name = activation_lower[1:]  # Remove @ prefix
+                bracketed_format = f"@[{node_name}]"
+                if bracketed_format in content_lower:
+                    return True
+
+            return False
 
         # Default: don't respond to broadcast messages or unknown types
         return False
