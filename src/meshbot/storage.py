@@ -64,10 +64,10 @@ class MeshBotStorage:
         return conversation_id.isdigit()
 
     def _get_node_prefix(self, pubkey: str) -> str:
-        """Get the first 12 characters of a public key for directory naming."""
-        # Sanitize pubkey (remove non-alphanumeric) and take first 12 chars
+        """Get the first 8 characters of a public key for directory naming."""
+        # Sanitize pubkey (remove non-alphanumeric) and take first 8 chars
         safe_key = "".join(c for c in pubkey if c.isalnum())
-        return safe_key[:12]
+        return safe_key[:8]
 
     def _get_node_dir(self, pubkey: str) -> Path:
         """Get the directory path for a node."""
@@ -542,7 +542,8 @@ class MeshBotStorage:
             else:
                 memory = {}
 
-            # Update name and timestamp
+            # Update name, timestamp, and pubkey
+            memory["pubkey"] = pubkey  # Store full public key
             memory["name"] = name
             memory["name_timestamp"] = timestamp
 
@@ -550,7 +551,7 @@ class MeshBotStorage:
             with open(memory_file, "w", encoding="utf-8") as f:
                 json.dump(memory, f, indent=2)
 
-            logger.debug(f"Updated node name: {pubkey[:12]}... -> {name}")
+            logger.debug(f"Updated node name: {pubkey[:8]}... -> {name}")
         except Exception as e:
             logger.error(f"Error updating node name: {e}")
             raise
@@ -651,6 +652,7 @@ class MeshBotStorage:
                 memory = {"first_seen": timestamp}
 
             # Update fields
+            memory["pubkey"] = pubkey  # Store full public key
             memory["last_seen"] = timestamp
             memory["is_online"] = is_online
             if name:
@@ -660,7 +662,7 @@ class MeshBotStorage:
             with open(memory_file, "w", encoding="utf-8") as f:
                 json.dump(memory, f, indent=2)
 
-            logger.debug(f"Upserted node: {pubkey[:12]}...")
+            logger.debug(f"Upserted node: {pubkey[:8]}...")
 
         except Exception as e:
             logger.error(f"Error upserting node: {e}")
@@ -689,7 +691,8 @@ class MeshBotStorage:
             else:
                 memory = {"first_seen": timestamp, "total_adverts": 0}
 
-            # Update advert count and timestamp
+            # Update advert count, timestamp, and pubkey
+            memory["pubkey"] = pubkey  # Store full public key
             memory["total_adverts"] = memory.get("total_adverts", 0) + 1
             memory["last_advert"] = timestamp
             memory["last_seen"] = timestamp
@@ -722,7 +725,7 @@ class MeshBotStorage:
                 memory = json.load(f)
 
             return {
-                "pubkey": pubkey,
+                "pubkey": memory.get("pubkey", pubkey),  # Use stored pubkey, fallback to parameter
                 "name": memory.get("name"),
                 "is_online": memory.get("is_online", False),
                 "first_seen": memory.get("first_seen"),
@@ -775,7 +778,7 @@ class MeshBotStorage:
 
                     nodes.append(
                         {
-                            "pubkey": pubkey_prefix,
+                            "pubkey": memory.get("pubkey", pubkey_prefix),  # Use stored full pubkey, fallback to prefix
                             "name": memory.get("name"),
                             "is_online": memory.get("is_online", False),
                             "first_seen": memory.get("first_seen"),
@@ -839,7 +842,7 @@ class MeshBotStorage:
             )
             await self.update_node_advert_count(node_id, timestamp)
 
-            logger.debug(f"Added advert from {node_id[:12]}...")
+            logger.debug(f"Added advert from {node_id[:8]}...")
 
         except Exception as e:
             logger.error(f"Error adding advert: {e}")
