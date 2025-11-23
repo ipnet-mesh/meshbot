@@ -16,75 +16,7 @@ def register_query_tools(agent: Any) -> None:
     """
 
     @agent.tool
-    async def search_network_events(
-        ctx: RunContext[Any],
-        event_type: Optional[str] = None,
-        node_id: Optional[str] = None,
-        hours_ago: Optional[int] = None,
-        limit: int = 20,
-    ) -> str:
-        """Search historical network events (non-advertisement events) with filters.
-
-        Note: Use list_adverts() for advertisement events, use this for other
-        network events like PATH_UPDATE, STATUS_RESPONSE, etc.
-
-        Args:
-            event_type: Filter by event type (NEW_CONTACT, PATH_UPDATE, STATUS_RESPONSE, etc.)
-            node_id: Filter by node ID (partial match supported)
-            hours_ago: Only show events from last N hours
-            limit: Maximum number of results (default 20, max 50)
-
-        Returns:
-            Formatted list of matching network events
-        """
-        try:
-            import time
-
-            # Calculate timestamp filter if hours_ago is specified
-            since = None
-            if hours_ago is not None:
-                since = time.time() - (hours_ago * 3600)
-
-            # Limit to max 50 results
-            limit = min(limit, 50)
-
-            # Query storage
-            events = await ctx.deps.memory.storage.search_network_events(
-                event_type=event_type,
-                node_id=node_id,
-                since=since,
-                limit=limit,
-            )
-
-            if not events:
-                filters = []
-                if event_type:
-                    filters.append(f"type={event_type}")
-                if node_id:
-                    filters.append(f"node={node_id}")
-                if hours_ago:
-                    filters.append(f"last {hours_ago}h")
-                filter_str = " with " + ", ".join(filters) if filters else ""
-                return f"No network events found{filter_str}"
-
-            # Format results
-            from datetime import datetime
-
-            result = f"Found {len(events)} network event(s):\n"
-            for event in events:
-                timestamp = datetime.fromtimestamp(event["timestamp"])
-                time_str = timestamp.strftime("%Y-%m-%d %H:%M:%S")
-                details = event["details"] or event["event_type"]
-                result += f"[{time_str}] {details}\n"
-
-            return result.strip()
-
-        except Exception as e:
-            logger.error(f"Error searching network events: {e}")
-            return "Error searching network events"
-
-    @agent.tool
-    async def search_all_messages(
+    async def search_messages(
         ctx: RunContext[Any],
         keyword: str,
         hours_ago: Optional[int] = None,
