@@ -19,7 +19,7 @@ classifiers = [
 ]
 requires-python = ">=3.11"
 dependencies = [
-    "pydantic-ai>=0.0.14",
+    "pydantic-ai-slim[openai]>=0.0.14",
     "pydantic>=2.0.0",
     "meshcore>=2.0.0",
     "python-dotenv>=1.0.0",
@@ -34,6 +34,8 @@ dev = [
     "black>=23.0.0",
     "mypy>=1.0.0",
     "isort>=5.0.0",
+    "flake8>=6.0.0",
+    "bandit>=1.7.0",
     "pre-commit>=3.0.0",
 ]
 
