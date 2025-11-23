@@ -1,4 +1,4 @@
-"""Memory management for MeshBot with SQLite storage."""
+"""Memory management for MeshBot with file-based storage."""
 
 import logging
 from pathlib import Path
@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 
 class MemoryManager:
-    """Manages conversation history using SQLite storage."""
+    """Manages conversation history using file-based storage."""
 
     def __init__(
         self,
@@ -18,25 +18,28 @@ class MemoryManager:
         max_lines: int = 1000,
     ):
         """
-        Initialize MemoryManager with SQLite storage.
+        Initialize MemoryManager with file-based storage.
 
         Args:
-            storage_path: Path to database file or directory (defaults to data/meshbot.db)
+            storage_path: Path to data directory (defaults to data/)
             max_lines: Maximum number of messages to return in conversation context (for compatibility)
         """
-        # If storage_path is a directory or None, use default database path
-        if storage_path is None or storage_path.is_dir():
-            db_path = Path("data") / "meshbot.db"
+        # Use the data directory for storage
+        if storage_path is None:
+            data_path = Path("data")
+        elif storage_path.is_file():
+            # If it's a file path, use its parent directory
+            data_path = storage_path.parent
         else:
-            db_path = storage_path
+            data_path = storage_path
 
-        self.storage = MeshBotStorage(db_path)
+        self.storage = MeshBotStorage(data_path)
         self.max_lines = max_lines
 
-        logger.info(f"Memory manager initialized: {db_path}")
+        logger.info(f"Memory manager initialized: {data_path}")
 
     async def load(self) -> None:
-        """Initialize SQLite storage (replaces text file loading)."""
+        """Initialize file-based storage (create data directory if needed)."""
         try:
             await self.storage.initialize()
             logger.info("Storage initialized successfully")
@@ -44,7 +47,7 @@ class MemoryManager:
             logger.error(f"Error initializing storage: {e}")
 
     async def save(self) -> None:
-        """Save is a no-op since SQLite writes are immediate."""
+        """Save is a no-op since file writes are immediate."""
         pass
 
     async def add_message(

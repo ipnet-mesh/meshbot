@@ -122,36 +122,55 @@ class MeshBotAgent:
             connection_type, **self.meshcore_kwargs
         )
 
-        # Initialize memory manager with SQLite storage
+        # Initialize memory manager with file-based storage
         self._memory = MemoryManager(
-            storage_path=self.memory_path or Path("data"),  # SQLite database directory
+            storage_path=self.memory_path or Path("data"),  # Data directory
             max_lines=1000,  # Max messages in conversation context
         )
         await self.memory.load()
 
-        # Build agent instructions
-        base_instructions = (
-            "You are MeshBot, an AI assistant that communicates through the MeshCore network. "
-            "You are helpful, concise, and knowledgeable. "
-            "MeshCore is a simple text messaging system with some limitations:\n"
-            f"- Keep responses concise and clear (prefer under 200 chars, max {self.max_message_length})\n"
-            "- Use newlines for better readability when helpful\n"
-            "- NO emoji, but you CAN use basic punctuation like • — – for lists and separation\n"
-            "- Use plain text with good structure\n"
-            "- Be direct and helpful\n"
-            "- Use tools ONLY when absolutely necessary - prefer direct responses\n"
-            "- Maximum 1-2 tool calls per message, avoid chains\n"
-            "- For simple questions, respond directly without tools\n"
-            "- IMPORTANT: When calling weather API, make the HTTP request INSIDE the tool, don't call the tool repeatedly\n"
-            "- CRITICAL: get_weather tool makes HTTP request automatically - call it ONCE only\n"
-            "When users send 'ping', respond with 'pong'\n"
-            "\n"
-            "Examples of good formatting:\n"
-            "Status: Connected • 20 contacts online • 51 messages processed\n"
-            "Time: 14:30 • Date: 2025-01-15\n"
-            "Result: Success • Data saved • Ready for next task\n"
-            "Nodes found: 12 online • 8 with names • 4 new today\n"
-        )
+        # Load system prompt from file
+        data_dir = self.memory_path or Path("data")
+        system_prompt_file = data_dir / "system_prompt.txt"
+
+        # Create default system prompt if it doesn't exist
+        if not system_prompt_file.exists():
+            data_dir.mkdir(parents=True, exist_ok=True)
+            default_prompt = (
+                "You are MeshBot, an AI assistant that communicates through the MeshCore network. "
+                "You are helpful, concise, and knowledgeable. "
+                "MeshCore is a simple text messaging system with some limitations:\n"
+                f"- Keep responses concise and clear (prefer under 200 chars, max {self.max_message_length})\n"
+                "- Use newlines for better readability when helpful\n"
+                "- NO emoji, but you CAN use basic punctuation like • — – for lists and separation\n"
+                "- Use plain text with good structure\n"
+                "- Be direct and helpful\n"
+                "- Use tools ONLY when absolutely necessary - prefer direct responses\n"
+                "- Maximum 1-2 tool calls per message, avoid chains\n"
+                "- For simple questions, respond directly without tools\n"
+                "- IMPORTANT: When calling weather API, make the HTTP request INSIDE the tool, don't call the tool repeatedly\n"
+                "- CRITICAL: get_weather tool makes HTTP request automatically - call it ONCE only\n"
+                "When users send 'ping', respond with 'pong'\n"
+                "\n"
+                "Examples of good formatting:\n"
+                "Status: Connected • 20 contacts online • 51 messages processed\n"
+                "Time: 14:30 • Date: 2025-01-15\n"
+                "Result: Success • Data saved • Ready for next task\n"
+                "Nodes found: 12 online • 8 with names • 4 new today\n"
+            )
+            with open(system_prompt_file, "w", encoding="utf-8") as f:
+                f.write(default_prompt)
+            logger.info(f"Created default system prompt: {system_prompt_file}")
+
+        # Load system prompt from file
+        try:
+            with open(system_prompt_file, "r", encoding="utf-8") as f:
+                base_instructions = f.read()
+            logger.info(f"Loaded system prompt from: {system_prompt_file}")
+        except Exception as e:
+            logger.error(f"Error loading system prompt: {e}")
+            # Fall back to default
+            base_instructions = "You are MeshBot, an AI assistant that communicates through the MeshCore network."
 
         # Add custom prompt if provided
         if self.custom_prompt:

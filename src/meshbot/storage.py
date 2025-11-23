@@ -1,191 +1,66 @@
-"""SQLite storage layer for MeshBot data."""
+"""File-based storage layer for MeshBot data."""
 
+import csv
+import json
 import logging
-import sqlite3
 import time
+from collections import deque
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, cast
 
 logger = logging.getLogger(__name__)
 
 
 class MeshBotStorage:
-    """SQLite storage for messages, adverts, nodes, and network events."""
+    """File-based storage for messages, adverts, nodes, and network events."""
 
-    def __init__(self, db_path: Path):
+    def __init__(self, data_path: Path):
         """
-        Initialize storage with SQLite database.
+        Initialize storage with data directory.
 
         Args:
-            db_path: Path to SQLite database file
+            data_path: Path to data directory
         """
-        self.db_path = db_path
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        self._conn: Optional[sqlite3.Connection] = None
+        self.data_path = data_path
+        self.data_path.mkdir(parents=True, exist_ok=True)
 
-    @property
-    def conn(self) -> sqlite3.Connection:
-        """Get the database connection, ensuring it exists."""
-        if self._conn is None:
-            raise RuntimeError("Storage not initialized. Call initialize() first.")
-        return self._conn
+        # File paths
+        self.adverts_file = self.data_path / "adverts.csv"
+
+        # Initialize CSV files with headers if they don't exist
+        if not self.adverts_file.exists():
+            with open(self.adverts_file, "w", newline="") as f:
+                writer = csv.writer(f)
+                writer.writerow(
+                    ["timestamp", "node_id", "node_name", "signal_strength", "details"]
+                )
 
     async def initialize(self) -> None:
-        """Initialize database connection and create tables."""
+        """Initialize storage (create data directory if needed)."""
         try:
-            # SQLite doesn't support async natively, but we can use run_in_executor
-            # For simplicity, we'll use sync operations since SQLite is fast
-            # check_same_thread=False allows the connection to be used across threads
-            self._conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
-            self._conn.row_factory = sqlite3.Row  # Enable column access by name
-
-            # Create tables
-            self._create_tables()
-
-            logger.info(f"Storage initialized: {self.db_path}")
+            self.data_path.mkdir(parents=True, exist_ok=True)
+            logger.info(f"Storage initialized: {self.data_path}")
         except Exception as e:
             logger.error(f"Error initializing storage: {e}")
             raise
 
-    def _create_tables(self) -> None:
-        """Create database tables if they don't exist."""
-        cursor = self.conn.cursor()
-
-        # Messages table - chat messages
-        cursor.execute(
-            """
-            CREATE TABLE IF NOT EXISTS messages (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                timestamp REAL NOT NULL,
-                conversation_id TEXT NOT NULL,
-                message_type TEXT NOT NULL,
-                role TEXT NOT NULL,
-                content TEXT NOT NULL,
-                sender TEXT,
-                created_at REAL DEFAULT (strftime('%s', 'now'))
-            )
-        """
-        )
-
-        # Index for fast conversation lookups
-        cursor.execute(
-            """
-            CREATE INDEX IF NOT EXISTS idx_messages_conversation
-            ON messages(conversation_id, timestamp)
-        """
-        )
-
-        # Index for search
-        cursor.execute(
-            """
-            CREATE INDEX IF NOT EXISTS idx_messages_content
-            ON messages(content)
-        """
-        )
-
-        # Nodes table - central node registry
-        cursor.execute(
-            """
-            CREATE TABLE IF NOT EXISTS nodes (
-                pubkey TEXT PRIMARY KEY,
-                name TEXT,
-                is_online INTEGER DEFAULT 0,
-                first_seen REAL NOT NULL,
-                last_seen REAL NOT NULL,
-                last_advert REAL,
-                total_adverts INTEGER DEFAULT 0,
-                updated_at REAL DEFAULT (strftime('%s', 'now'))
-            )
-        """
-        )
-
-        cursor.execute(
-            """
-            CREATE INDEX IF NOT EXISTS idx_nodes_online
-            ON nodes(is_online, last_seen)
-        """
-        )
-
-        # Adverts table - advertisement events
-        cursor.execute(
-            """
-            CREATE TABLE IF NOT EXISTS adverts (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                timestamp REAL NOT NULL,
-                node_id TEXT NOT NULL,
-                node_name TEXT,
-                signal_strength INTEGER,
-                details TEXT,
-                created_at REAL DEFAULT (strftime('%s', 'now')),
-                FOREIGN KEY (node_id) REFERENCES nodes(pubkey)
-            )
-        """
-        )
-
-        cursor.execute(
-            """
-            CREATE INDEX IF NOT EXISTS idx_adverts_node_time
-            ON adverts(node_id, timestamp)
-        """
-        )
-
-        cursor.execute(
-            """
-            CREATE INDEX IF NOT EXISTS idx_adverts_time
-            ON adverts(timestamp)
-        """
-        )
-
-        # Network events table - other network events (non-adverts)
-        cursor.execute(
-            """
-            CREATE TABLE IF NOT EXISTS network_events (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                timestamp REAL NOT NULL,
-                event_type TEXT NOT NULL,
-                node_id TEXT,
-                node_name TEXT,
-                details TEXT,
-                created_at REAL DEFAULT (strftime('%s', 'now'))
-            )
-        """
-        )
-
-        # Index for event type and time-based queries
-        cursor.execute(
-            """
-            CREATE INDEX IF NOT EXISTS idx_events_type_time
-            ON network_events(event_type, timestamp)
-        """
-        )
-
-        cursor.execute(
-            """
-            CREATE INDEX IF NOT EXISTS idx_events_node
-            ON network_events(node_id, timestamp)
-        """
-        )
-
-        # Legacy node_names table - keep for backward compatibility
-        # New code should use 'nodes' table instead
-        cursor.execute(
-            """
-            CREATE TABLE IF NOT EXISTS node_names (
-                pubkey TEXT PRIMARY KEY,
-                name TEXT NOT NULL,
-                timestamp REAL NOT NULL,
-                updated_at REAL DEFAULT (strftime('%s', 'now'))
-            )
-        """
-        )
-
-        self.conn.commit()
-
     async def close(self) -> None:
-        """Close database connection."""
-        if self._conn:
-            self._conn.close()
-            self._conn = None
+        """Close storage (no-op for file-based storage)."""
+        pass
+
+    # ========== Helper Methods ==========
+
+    def _get_user_messages_file(self, user_id: str) -> Path:
+        """Get the messages file path for a user."""
+        # Sanitize user_id to create safe filename
+        safe_id = "".join(c if c.isalnum() else "_" for c in user_id)
+        return self.data_path / f"{safe_id}_messages.txt"
+
+    def _get_user_memory_file(self, user_id: str) -> Path:
+        """Get the memory file path for a user."""
+        # Sanitize user_id to create safe filename
+        safe_id = "".join(c if c.isalnum() else "_" for c in user_id)
+        return self.data_path / f"{safe_id}_memory.json"
 
     # ========== Messages ==========
 
@@ -199,7 +74,7 @@ class MeshBotStorage:
         sender: Optional[str] = None,
     ) -> None:
         """
-        Add a message to the database.
+        Add a message to the user's message file.
 
         Args:
             conversation_id: Conversation/user/channel ID
@@ -213,15 +88,18 @@ class MeshBotStorage:
             timestamp = time.time()
 
         try:
-            cursor = self.conn.cursor()
-            cursor.execute(
-                """
-                INSERT INTO messages (timestamp, conversation_id, message_type, role, content, sender)
-                VALUES (?, ?, ?, ?, ?, ?)
-                """,
-                (timestamp, conversation_id, message_type, role, content, sender),
-            )
-            self.conn.commit()
+            messages_file = self._get_user_messages_file(conversation_id)
+
+            # Append message to file
+            # Format: timestamp|message_type|role|content|sender
+            with open(messages_file, "a", encoding="utf-8") as f:
+                # Escape pipes in content
+                escaped_content = content.replace("|", "\\|")
+                sender_str = sender or ""
+                f.write(
+                    f"{timestamp}|{message_type}|{role}|{escaped_content}|{sender_str}\n"
+                )
+
             logger.debug(
                 f"Added message to {message_type} conversation {conversation_id}"
             )
@@ -247,34 +125,43 @@ class MeshBotStorage:
             List of message dicts with keys: role, content, timestamp, sender
         """
         try:
-            cursor = self.conn.cursor()
+            messages_file = self._get_user_messages_file(conversation_id)
 
-            query = """
-                SELECT role, content, timestamp, sender
-                FROM messages
-                WHERE conversation_id = ?
-                ORDER BY timestamp ASC
-            """
-
-            params: List[Any] = [conversation_id]
-
-            if limit is not None:
-                query += " LIMIT ? OFFSET ?"
-                params.extend([limit, offset])
-
-            cursor.execute(query, params)
-            rows = cursor.fetchall()
+            if not messages_file.exists():
+                return []
 
             messages = []
-            for row in rows:
-                messages.append(
-                    {
-                        "role": row["role"],
-                        "content": row["content"],
-                        "timestamp": row["timestamp"],
-                        "sender": row["sender"],
-                    }
-                )
+            with open(messages_file, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+
+                    # Parse line: timestamp|message_type|role|content|sender
+                    parts = line.split("|")
+                    if len(parts) >= 4:
+                        timestamp_str = parts[0]
+                        _ = parts[1]  # message_type (not used here, but part of format)
+                        role = parts[2]
+                        # Content might contain escaped pipes
+                        content = "|".join(parts[3:-1]) if len(parts) > 4 else parts[3]
+                        content = content.replace("\\|", "|")  # Unescape
+                        sender = parts[-1] if len(parts) > 4 else None
+
+                        messages.append(
+                            {
+                                "role": role,
+                                "content": content,
+                                "timestamp": float(timestamp_str),
+                                "sender": sender,
+                            }
+                        )
+
+            # Apply offset and limit
+            if offset > 0:
+                messages = messages[offset:]
+            if limit is not None:
+                messages = messages[:limit]
 
             return messages
 
@@ -302,42 +189,63 @@ class MeshBotStorage:
             List of message dicts
         """
         try:
-            cursor = self.conn.cursor()
-
-            query = "SELECT conversation_id, role, content, timestamp, sender FROM messages WHERE 1=1"
-            params: List[Any] = []
-
-            if conversation_id:
-                query += " AND conversation_id = ?"
-                params.append(conversation_id)
-
-            if keyword:
-                query += " AND LOWER(content) LIKE ?"
-                params.append(f"%{keyword.lower()}%")
-
-            if since:
-                query += " AND timestamp >= ?"
-                params.append(since)
-
-            query += " ORDER BY timestamp DESC LIMIT ?"
-            params.append(limit)
-
-            cursor.execute(query, params)
-            rows = cursor.fetchall()
-
             messages = []
-            for row in rows:
-                messages.append(
-                    {
-                        "conversation_id": row["conversation_id"],
-                        "role": row["role"],
-                        "content": row["content"],
-                        "timestamp": row["timestamp"],
-                        "sender": row["sender"],
-                    }
-                )
 
-            return messages
+            # Determine which files to search
+            if conversation_id:
+                files_to_search = [self._get_user_messages_file(conversation_id)]
+            else:
+                # Search all message files
+                files_to_search = list(self.data_path.glob("*_messages.txt"))
+
+            for messages_file in files_to_search:
+                if not messages_file.exists():
+                    continue
+
+                # Extract conversation_id from filename
+                file_conv_id = messages_file.stem.replace("_messages", "")
+
+                with open(messages_file, "r", encoding="utf-8") as f:
+                    for line in f:
+                        line = line.strip()
+                        if not line:
+                            continue
+
+                        # Parse line: timestamp|message_type|role|content|sender
+                        parts = line.split("|")
+                        if len(parts) >= 4:
+                            timestamp_str = parts[0]
+                            _ = parts[
+                                1
+                            ]  # message_type (not used here, but part of format)
+                            role = parts[2]
+                            content = (
+                                "|".join(parts[3:-1]) if len(parts) > 4 else parts[3]
+                            )
+                            content = content.replace("\\|", "|")
+                            sender = parts[-1] if len(parts) > 4 else None
+
+                            timestamp_val = float(timestamp_str)
+
+                            # Apply filters
+                            if since and timestamp_val < since:
+                                continue
+                            if keyword and keyword.lower() not in content.lower():
+                                continue
+
+                            messages.append(
+                                {
+                                    "conversation_id": file_conv_id,
+                                    "role": role,
+                                    "content": content,
+                                    "timestamp": timestamp_val,
+                                    "sender": sender,
+                                }
+                            )
+
+            # Sort by timestamp (most recent first) and limit
+            messages.sort(key=lambda x: cast(float, x["timestamp"]), reverse=True)
+            return messages[:limit]
 
         except Exception as e:
             logger.error(f"Error searching messages: {e}")
@@ -354,26 +262,39 @@ class MeshBotStorage:
             Dict with total_messages, first_seen, last_seen
         """
         try:
-            cursor = self.conn.cursor()
+            messages_file = self._get_user_messages_file(conversation_id)
 
-            cursor.execute(
-                """
-                SELECT
-                    COUNT(*) as total,
-                    MIN(timestamp) as first_seen,
-                    MAX(timestamp) as last_seen
-                FROM messages
-                WHERE conversation_id = ?
-                """,
-                (conversation_id,),
-            )
+            if not messages_file.exists():
+                return {
+                    "total_messages": 0,
+                    "first_seen": None,
+                    "last_seen": None,
+                }
 
-            row = cursor.fetchone()
+            total = 0
+            first_seen = None
+            last_seen = None
+
+            with open(messages_file, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+
+                    total += 1
+                    # Extract timestamp
+                    parts = line.split("|")
+                    if len(parts) >= 1:
+                        timestamp = float(parts[0])
+                        if first_seen is None or timestamp < first_seen:
+                            first_seen = timestamp
+                        if last_seen is None or timestamp > last_seen:
+                            last_seen = timestamp
 
             return {
-                "total_messages": row["total"],
-                "first_seen": row["first_seen"],
-                "last_seen": row["last_seen"],
+                "total_messages": total,
+                "first_seen": first_seen,
+                "last_seen": last_seen,
             }
 
         except Exception as e:
@@ -383,28 +304,30 @@ class MeshBotStorage:
     async def get_all_statistics(self) -> Dict[str, Any]:
         """Get overall statistics."""
         try:
-            cursor = self.conn.cursor()
+            # Count all message files
+            message_files = list(self.data_path.glob("*_messages.txt"))
+            total_conversations = len(message_files)
 
-            # Total messages
-            cursor.execute("SELECT COUNT(*) as total FROM messages")
-            total_messages = cursor.fetchone()["total"]
+            total_messages = 0
+            channel_messages = 0
+            dm_messages = 0
 
-            # Total conversations
-            cursor.execute(
-                "SELECT COUNT(DISTINCT conversation_id) as total FROM messages"
-            )
-            total_conversations = cursor.fetchone()["total"]
+            for messages_file in message_files:
+                with open(messages_file, "r", encoding="utf-8") as f:
+                    for line in f:
+                        line = line.strip()
+                        if not line:
+                            continue
 
-            # Channel vs DM messages
-            cursor.execute(
-                "SELECT COUNT(*) as total FROM messages WHERE message_type = 'channel'"
-            )
-            channel_messages = cursor.fetchone()["total"]
-
-            cursor.execute(
-                "SELECT COUNT(*) as total FROM messages WHERE message_type = 'direct'"
-            )
-            dm_messages = cursor.fetchone()["total"]
+                        total_messages += 1
+                        # Parse message type
+                        parts = line.split("|")
+                        if len(parts) >= 2:
+                            message_type = parts[1]
+                            if message_type == "channel":
+                                channel_messages += 1
+                            elif message_type == "direct":
+                                dm_messages += 1
 
             return {
                 "total_messages": total_messages,
@@ -422,7 +345,7 @@ class MeshBotStorage:
                 "dm_messages": 0,
             }
 
-    # ========== Network Events ==========
+    # ========== Network Events (Adverts only for now) ==========
 
     async def add_network_event(
         self,
@@ -433,36 +356,31 @@ class MeshBotStorage:
         timestamp: Optional[float] = None,
     ) -> None:
         """
-        Add a network event.
+        Add a network event (currently only adverts are stored).
 
         Args:
-            event_type: Type of event (ADVERT, NEW_CONTACT, etc.)
+            event_type: Type of event (ADVERT, etc.)
             node_id: Node public key (optional)
             node_name: Node friendly name (optional)
             details: Additional event details (optional)
             timestamp: Event timestamp (defaults to current time)
         """
-        if timestamp is None:
-            timestamp = time.time()
-
-        try:
-            cursor = self.conn.cursor()
-            cursor.execute(
-                """
-                INSERT INTO network_events (timestamp, event_type, node_id, node_name, details)
-                VALUES (?, ?, ?, ?, ?)
-                """,
-                (timestamp, event_type, node_id, node_name, details),
+        # For now, we only store adverts in adverts.csv
+        # Other network events are logged but not persisted
+        if event_type.upper() == "ADVERTISEMENT":
+            await self.add_advert(
+                node_id=node_id or "",
+                node_name=node_name,
+                signal_strength=None,
+                details=details,
+                timestamp=timestamp,
             )
-            self.conn.commit()
-            logger.debug(f"Added network event: {event_type}")
-        except Exception as e:
-            logger.error(f"Error adding network event: {e}")
-            raise
+        else:
+            logger.debug(f"Network event {event_type} logged but not persisted")
 
     async def get_recent_network_events(self, limit: int = 10) -> List[Dict[str, Any]]:
         """
-        Get recent network events.
+        Get recent network events (adverts only).
 
         Args:
             limit: Maximum number of events to return
@@ -470,36 +388,18 @@ class MeshBotStorage:
         Returns:
             List of event dicts with timestamp, event_type, node_id, node_name, details
         """
-        try:
-            cursor = self.conn.cursor()
-            cursor.execute(
-                """
-                SELECT timestamp, event_type, node_id, node_name, details
-                FROM network_events
-                ORDER BY timestamp DESC
-                LIMIT ?
-                """,
-                (limit,),
-            )
-
-            rows = cursor.fetchall()
-            events = []
-            for row in rows:
-                events.append(
-                    {
-                        "timestamp": row["timestamp"],
-                        "event_type": row["event_type"],
-                        "node_id": row["node_id"],
-                        "node_name": row["node_name"],
-                        "details": row["details"],
-                    }
-                )
-
-            return events
-
-        except Exception as e:
-            logger.error(f"Error getting recent network events: {e}")
-            return []
+        # Return recent adverts as network events
+        adverts = await self.get_recent_adverts(limit=limit)
+        return [
+            {
+                "timestamp": advert["timestamp"],
+                "event_type": "ADVERTISEMENT",
+                "node_id": advert["node_id"],
+                "node_name": advert["node_name"],
+                "details": advert["details"],
+            }
+            for advert in adverts
+        ]
 
     async def search_network_events(
         self,
@@ -509,7 +409,7 @@ class MeshBotStorage:
         limit: int = 50,
     ) -> List[Dict[str, Any]]:
         """
-        Search network events with filters.
+        Search network events with filters (adverts only).
 
         Args:
             event_type: Filter by event type (optional)
@@ -520,55 +420,30 @@ class MeshBotStorage:
         Returns:
             List of event dicts
         """
-        try:
-            cursor = self.conn.cursor()
-
-            query = "SELECT timestamp, event_type, node_id, node_name, details FROM network_events WHERE 1=1"
-            params: List[Any] = []
-
-            if event_type:
-                query += " AND event_type = ?"
-                params.append(event_type.upper())
-
-            if node_id:
-                query += " AND node_id LIKE ?"
-                params.append(f"%{node_id}%")
-
-            if since:
-                query += " AND timestamp >= ?"
-                params.append(since)
-
-            query += " ORDER BY timestamp DESC LIMIT ?"
-            params.append(limit)
-
-            cursor.execute(query, params)
-            rows = cursor.fetchall()
-
-            events = []
-            for row in rows:
-                events.append(
-                    {
-                        "timestamp": row["timestamp"],
-                        "event_type": row["event_type"],
-                        "node_id": row["node_id"],
-                        "node_name": row["node_name"],
-                        "details": row["details"],
-                    }
-                )
-
-            return events
-
-        except Exception as e:
-            logger.error(f"Error searching network events: {e}")
+        # Only search adverts for now
+        if event_type and event_type.upper() != "ADVERTISEMENT":
             return []
 
-    # ========== Node Names ==========
+        adverts = await self.search_adverts(node_id=node_id, since=since, limit=limit)
+        return [
+            {
+                "timestamp": advert["timestamp"],
+                "event_type": "ADVERTISEMENT",
+                "node_id": advert["node_id"],
+                "node_name": advert["node_name"],
+                "details": advert["details"],
+            }
+            for advert in adverts
+        ]
+
+    # ========== Node Names (Legacy Support) ==========
 
     async def update_node_name(
         self, pubkey: str, name: str, timestamp: Optional[float] = None
     ) -> None:
         """
         Update or add a node name mapping.
+        Stored in user memory file for now.
 
         Args:
             pubkey: Node public key
@@ -579,15 +454,23 @@ class MeshBotStorage:
             timestamp = time.time()
 
         try:
-            cursor = self.conn.cursor()
-            cursor.execute(
-                """
-                INSERT OR REPLACE INTO node_names (pubkey, name, timestamp)
-                VALUES (?, ?, ?)
-                """,
-                (pubkey, name, timestamp),
-            )
-            self.conn.commit()
+            memory_file = self._get_user_memory_file(pubkey)
+
+            # Load existing memory or create new
+            if memory_file.exists():
+                with open(memory_file, "r", encoding="utf-8") as f:
+                    memory = json.load(f)
+            else:
+                memory = {}
+
+            # Update name and timestamp
+            memory["name"] = name
+            memory["name_timestamp"] = timestamp
+
+            # Save memory
+            with open(memory_file, "w", encoding="utf-8") as f:
+                json.dump(memory, f, indent=2)
+
             logger.debug(f"Updated node name: {pubkey[:16]}... -> {name}")
         except Exception as e:
             logger.error(f"Error updating node name: {e}")
@@ -604,13 +487,16 @@ class MeshBotStorage:
             Friendly name if found, None otherwise
         """
         try:
-            cursor = self.conn.cursor()
-            cursor.execute(
-                "SELECT name FROM node_names WHERE pubkey = ?",
-                (pubkey,),
-            )
-            row = cursor.fetchone()
-            return row["name"] if row else None
+            memory_file = self._get_user_memory_file(pubkey)
+
+            if not memory_file.exists():
+                return None
+
+            with open(memory_file, "r", encoding="utf-8") as f:
+                memory = json.load(f)
+
+            name = memory.get("name")
+            return str(name) if name is not None else None
 
         except Exception as e:
             logger.error(f"Error getting node name: {e}")
@@ -624,22 +510,32 @@ class MeshBotStorage:
             List of (pubkey, name) tuples ordered by most recent
         """
         try:
-            cursor = self.conn.cursor()
-            cursor.execute(
-                """
-                SELECT pubkey, name
-                FROM node_names
-                ORDER BY timestamp DESC
-                """
-            )
-            rows = cursor.fetchall()
-            return [(row["pubkey"], row["name"]) for row in rows]
+            memory_files = list(self.data_path.glob("*_memory.json"))
+            node_names = []
+
+            for memory_file in memory_files:
+                try:
+                    with open(memory_file, "r", encoding="utf-8") as f:
+                        memory = json.load(f)
+
+                    if "name" in memory:
+                        pubkey = memory_file.stem.replace("_memory", "")
+                        name = memory["name"]
+                        timestamp = memory.get("name_timestamp", 0)
+                        node_names.append((pubkey, name, timestamp))
+                except Exception:
+                    continue
+
+            # Sort by timestamp (most recent first)
+            node_names.sort(key=lambda x: x[2], reverse=True)
+
+            return [(pubkey, name) for pubkey, name, _ in node_names]
 
         except Exception as e:
             logger.error(f"Error getting all node names: {e}")
             return []
 
-    # ========== Nodes ==========
+    # ========== Nodes (Simplified) ==========
 
     async def upsert_node(
         self,
@@ -650,6 +546,7 @@ class MeshBotStorage:
     ) -> None:
         """
         Add or update a node in the registry.
+        Stores basic info in memory file.
 
         Args:
             pubkey: Node public key
@@ -661,35 +558,25 @@ class MeshBotStorage:
             timestamp = time.time()
 
         try:
-            cursor = self.conn.cursor()
+            memory_file = self._get_user_memory_file(pubkey)
 
-            # Check if node exists
-            cursor.execute("SELECT pubkey FROM nodes WHERE pubkey = ?", (pubkey,))
-            exists = cursor.fetchone() is not None
-
-            if exists:
-                # Update existing node
-                update_fields = ["last_seen = ?", "is_online = ?"]
-                params: list[Any] = [timestamp, 1 if is_online else 0]
-
-                if name:
-                    update_fields.append("name = ?")
-                    params.append(name)
-
-                query = f"UPDATE nodes SET {', '.join(update_fields)} WHERE pubkey = ?"
-                params.append(pubkey)
-                cursor.execute(query, params)
+            # Load existing memory or create new
+            if memory_file.exists():
+                with open(memory_file, "r", encoding="utf-8") as f:
+                    memory = json.load(f)
             else:
-                # Insert new node
-                cursor.execute(
-                    """
-                    INSERT INTO nodes (pubkey, name, is_online, first_seen, last_seen)
-                    VALUES (?, ?, ?, ?, ?)
-                    """,
-                    (pubkey, name, 1 if is_online else 0, timestamp, timestamp),
-                )
+                memory = {"first_seen": timestamp}
 
-            self.conn.commit()
+            # Update fields
+            memory["last_seen"] = timestamp
+            memory["is_online"] = is_online
+            if name:
+                memory["name"] = name
+
+            # Save memory
+            with open(memory_file, "w", encoding="utf-8") as f:
+                json.dump(memory, f, indent=2)
+
             logger.debug(f"Upserted node: {pubkey[:16]}...")
 
         except Exception as e:
@@ -710,18 +597,23 @@ class MeshBotStorage:
             timestamp = time.time()
 
         try:
-            cursor = self.conn.cursor()
-            cursor.execute(
-                """
-                UPDATE nodes
-                SET total_adverts = total_adverts + 1,
-                    last_advert = ?,
-                    last_seen = ?
-                WHERE pubkey = ?
-                """,
-                (timestamp, timestamp, pubkey),
-            )
-            self.conn.commit()
+            memory_file = self._get_user_memory_file(pubkey)
+
+            # Load existing memory or create new
+            if memory_file.exists():
+                with open(memory_file, "r", encoding="utf-8") as f:
+                    memory = json.load(f)
+            else:
+                memory = {"first_seen": timestamp, "total_adverts": 0}
+
+            # Update advert count and timestamp
+            memory["total_adverts"] = memory.get("total_adverts", 0) + 1
+            memory["last_advert"] = timestamp
+            memory["last_seen"] = timestamp
+
+            # Save memory
+            with open(memory_file, "w", encoding="utf-8") as f:
+                json.dump(memory, f, indent=2)
 
         except Exception as e:
             logger.error(f"Error updating node advert count: {e}")
@@ -738,29 +630,22 @@ class MeshBotStorage:
             Node dict or None if not found
         """
         try:
-            cursor = self.conn.cursor()
-            cursor.execute(
-                """
-                SELECT pubkey, name, is_online, first_seen, last_seen,
-                       last_advert, total_adverts
-                FROM nodes
-                WHERE pubkey = ?
-                """,
-                (pubkey,),
-            )
+            memory_file = self._get_user_memory_file(pubkey)
 
-            row = cursor.fetchone()
-            if not row:
+            if not memory_file.exists():
                 return None
 
+            with open(memory_file, "r", encoding="utf-8") as f:
+                memory = json.load(f)
+
             return {
-                "pubkey": row["pubkey"],
-                "name": row["name"],
-                "is_online": bool(row["is_online"]),
-                "first_seen": row["first_seen"],
-                "last_seen": row["last_seen"],
-                "last_advert": row["last_advert"],
-                "total_adverts": row["total_adverts"],
+                "pubkey": pubkey,
+                "name": memory.get("name"),
+                "is_online": memory.get("is_online", False),
+                "first_seen": memory.get("first_seen"),
+                "last_seen": memory.get("last_seen"),
+                "last_advert": memory.get("last_advert"),
+                "total_adverts": memory.get("total_adverts", 0),
             }
 
         except Exception as e:
@@ -785,43 +670,40 @@ class MeshBotStorage:
             List of node dicts
         """
         try:
-            cursor = self.conn.cursor()
-
-            query = """
-                SELECT pubkey, name, is_online, first_seen, last_seen,
-                       last_advert, total_adverts
-                FROM nodes
-                WHERE 1=1
-            """
-            params: List[Any] = []
-
-            if online_only:
-                query += " AND is_online = 1"
-
-            if has_name:
-                query += " AND name IS NOT NULL"
-
-            query += " ORDER BY last_seen DESC LIMIT ?"
-            params.append(limit)
-
-            cursor.execute(query, params)
-            rows = cursor.fetchall()
-
+            memory_files = list(self.data_path.glob("*_memory.json"))
             nodes = []
-            for row in rows:
-                nodes.append(
-                    {
-                        "pubkey": row["pubkey"],
-                        "name": row["name"],
-                        "is_online": bool(row["is_online"]),
-                        "first_seen": row["first_seen"],
-                        "last_seen": row["last_seen"],
-                        "last_advert": row["last_advert"],
-                        "total_adverts": row["total_adverts"],
-                    }
-                )
 
-            return nodes
+            for memory_file in memory_files:
+                try:
+                    with open(memory_file, "r", encoding="utf-8") as f:
+                        memory = json.load(f)
+
+                    pubkey = memory_file.stem.replace("_memory", "")
+
+                    # Apply filters
+                    if online_only and not memory.get("is_online", False):
+                        continue
+                    if has_name and not memory.get("name"):
+                        continue
+
+                    nodes.append(
+                        {
+                            "pubkey": pubkey,
+                            "name": memory.get("name"),
+                            "is_online": memory.get("is_online", False),
+                            "first_seen": memory.get("first_seen"),
+                            "last_seen": memory.get("last_seen"),
+                            "last_advert": memory.get("last_advert"),
+                            "total_adverts": memory.get("total_adverts", 0),
+                        }
+                    )
+                except Exception:
+                    continue
+
+            # Sort by last_seen (most recent first)
+            nodes.sort(key=lambda x: x.get("last_seen", 0) or 0, reverse=True)
+
+            return nodes[:limit]
 
         except Exception as e:
             logger.error(f"Error listing nodes: {e}")
@@ -838,7 +720,7 @@ class MeshBotStorage:
         timestamp: Optional[float] = None,
     ) -> None:
         """
-        Add an advertisement event.
+        Add an advertisement event to adverts.csv.
 
         Args:
             node_id: Node public key
@@ -851,24 +733,25 @@ class MeshBotStorage:
             timestamp = time.time()
 
         try:
-            cursor = self.conn.cursor()
+            # Append to CSV file
+            with open(self.adverts_file, "a", newline="", encoding="utf-8") as f:
+                writer = csv.writer(f)
+                writer.writerow(
+                    [
+                        timestamp,
+                        node_id,
+                        node_name or "",
+                        signal_strength or "",
+                        details or "",
+                    ]
+                )
 
-            # Add advert record
-            cursor.execute(
-                """
-                INSERT INTO adverts (timestamp, node_id, node_name, signal_strength, details)
-                VALUES (?, ?, ?, ?, ?)
-                """,
-                (timestamp, node_id, node_name, signal_strength, details),
-            )
-
-            # Update node registry (upsert)
+            # Update node registry
             await self.upsert_node(
                 node_id, name=node_name, is_online=True, timestamp=timestamp
             )
             await self.update_node_advert_count(node_id, timestamp)
 
-            self.conn.commit()
             logger.debug(f"Added advert from {node_id[:16]}...")
 
         except Exception as e:
@@ -883,6 +766,7 @@ class MeshBotStorage:
     ) -> List[Dict[str, Any]]:
         """
         Search advertisements with filters.
+        Efficiently reads only recent lines from the file.
 
         Args:
             node_id: Filter by node ID (optional, supports partial match)
@@ -893,38 +777,52 @@ class MeshBotStorage:
             List of advert dicts
         """
         try:
-            cursor = self.conn.cursor()
-
-            query = "SELECT timestamp, node_id, node_name, signal_strength, details FROM adverts WHERE 1=1"
-            params: List[Any] = []
-
-            if node_id:
-                query += " AND node_id LIKE ?"
-                params.append(f"%{node_id}%")
-
-            if since:
-                query += " AND timestamp >= ?"
-                params.append(since)
-
-            query += " ORDER BY timestamp DESC LIMIT ?"
-            params.append(limit)
-
-            cursor.execute(query, params)
-            rows = cursor.fetchall()
+            if not self.adverts_file.exists():
+                return []
 
             adverts = []
-            for row in rows:
-                adverts.append(
-                    {
-                        "timestamp": row["timestamp"],
-                        "node_id": row["node_id"],
-                        "node_name": row["node_name"],
-                        "signal_strength": row["signal_strength"],
-                        "details": row["details"],
-                    }
-                )
 
-            return adverts
+            # Read file in reverse to get recent entries efficiently
+            # Use deque with maxlen for efficient last-N-lines reading
+            with open(self.adverts_file, "r", encoding="utf-8") as f:
+                # Skip header
+                next(f, None)
+
+                # Read last N lines (limit * 2 to account for filtering)
+                lines = deque(f, maxlen=limit * 2)
+
+                reader = csv.reader(lines)
+                for row in reader:
+                    if len(row) < 5:
+                        continue
+
+                    timestamp_val = float(row[0])
+                    advert_node_id = row[1]
+                    advert_node_name = row[2]
+                    signal_strength = row[3]
+                    advert_details = row[4]
+
+                    # Apply filters
+                    if node_id and node_id not in advert_node_id:
+                        continue
+                    if since and timestamp_val < since:
+                        continue
+
+                    adverts.append(
+                        {
+                            "timestamp": timestamp_val,
+                            "node_id": advert_node_id,
+                            "node_name": advert_node_name or None,
+                            "signal_strength": int(signal_strength)
+                            if signal_strength
+                            else None,
+                            "details": advert_details or None,
+                        }
+                    )
+
+            # Sort by timestamp (most recent first) and limit
+            adverts.sort(key=lambda x: cast(float, x["timestamp"]), reverse=True)
+            return adverts[:limit]
 
         except Exception as e:
             logger.error(f"Error searching adverts: {e}")
@@ -932,7 +830,7 @@ class MeshBotStorage:
 
     async def get_recent_adverts(self, limit: int = 10) -> List[Dict[str, Any]]:
         """
-        Get recent advertisements.
+        Get recent advertisements (efficiently reads last few lines).
 
         Args:
             limit: Maximum number of adverts to return

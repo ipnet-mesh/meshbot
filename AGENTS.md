@@ -105,8 +105,8 @@ pytest tests/test_basic.py -v
    - Event-based message handling (DMs and channels)
    - Network event tracking (ADVERTISEMENT, NEW_CONTACT, PATH_UPDATE, NEIGHBOURS_RESPONSE, STATUS_RESPONSE)
    - Automatic node name discovery from contacts
-   - Node name mapping storage in SQLite database
-   - Network events logged to SQLite database
+   - Node name mapping storage in file-based memory
+   - Network events (adverts) logged to CSV file
 
 2. **AI Agent** (`src/meshbot/agent.py`)
    - Pydantic AI agent with rich tool set
@@ -125,14 +125,16 @@ pytest tests/test_basic.py -v
    - Graceful handling of usage limit errors
 
 3. **Memory System** (`src/meshbot/memory.py` + `src/meshbot/storage.py`)
-   - SQLite-based storage for all data
-   - Single database file: `data/meshbot.db`
-   - Three main tables: messages, network_events, node_names
-   - Indexed for fast queries (conversation lookups, content search, event filtering)
-   - Automatic connection management
+   - File-based storage using text files and CSV
+   - Data stored in `data/` directory
+   - System prompt in `data/system_prompt.txt` (editable)
+   - Network adverts in `data/adverts.csv` (append-only)
+   - Per-user message history in `data/{pubkey}_messages.txt`
+   - Per-user memories in `data/{pubkey}_memory.json`
+   - Efficient querying (only reads recent lines for adverts)
    - Supports complex queries (time ranges, keyword search, filtering)
    - Persistent across restarts
-   - Query tools for historical data access
+   - Human-readable format for easy inspection and editing
 
 4. **Configuration** (`src/meshbot/config.py`)
    - Environment variable support
@@ -246,12 +248,15 @@ meshbot/
 │   ├── __init__.py
 │   ├── agent.py           # Pydantic AI agent with query tools
 │   ├── meshcore_interface.py  # MeshCore communication
-│   ├── memory.py          # SQLite storage interface
-│   ├── storage.py         # SQLite database layer
+│   ├── memory.py          # File-based storage interface
+│   ├── storage.py         # File-based storage layer
 │   ├── config.py          # Configuration management
 │   └── main.py           # CLI entry point
-├── data/                  # Data directory (auto-created, gitignored)
-│   └── meshbot.db        # SQLite database (messages, events, node names)
+├── data/                  # Data directory (auto-created)
+│   ├── system_prompt.txt  # System prompt (tracked in git)
+│   ├── adverts.csv        # Network advertisements (gitignored)
+│   ├── {pubkey}_messages.txt  # Message history per user (gitignored)
+│   └── {pubkey}_memory.json   # User memories per user (gitignored)
 ├── tests/                # Test suite
 │   ├── test_basic.py
 │   └── conftest.py       # pytest configuration
@@ -376,26 +381,22 @@ The agent includes network situational awareness implemented in `src/meshbot/mes
 5. Update documentation
 
 ### Modifying Memory System
-The memory system uses SQLite database storage in `data/meshbot.db`:
-- **Messages table**: Stores all conversations (DMs and channels)
-- **Adverts table**: Stores advertisement events (dedicated table for mesh adverts)
-- **Nodes table**: Central node registry with comprehensive node information
-- **Network events table**: Stores other network events (non-advertisements)
-- **Node names table**: Legacy table for backward compatibility
+The memory system uses file-based storage in the `data/` directory:
+- **System prompt**: `data/system_prompt.txt` - editable system prompt for the agent
+- **Adverts file**: `data/adverts.csv` - network advertisements (append-only CSV)
+- **Message files**: `data/{pubkey}_messages.txt` - message history per user (pipe-delimited)
+- **Memory files**: `data/{pubkey}_memory.json` - user memories and metadata per user (JSON)
 
-**Schema** (see `src/meshbot/storage.py`):
-- **Messages**: `id, timestamp, conversation_id, message_type, role, content, sender`
-- **Adverts**: `id, timestamp, node_id, node_name, signal_strength, details`
-- **Nodes**: `pubkey (PK), name, is_online, first_seen, last_seen, last_advert, total_adverts`
-- **Network events**: `id, timestamp, event_type, node_id, node_name, details`
-- **Node names**: `pubkey (PK), name, timestamp, updated_at` (legacy)
+**File Formats** (see `src/meshbot/storage.py`):
+- **system_prompt.txt**: Plain text, editable system prompt loaded on startup
+- **adverts.csv**: CSV with columns: timestamp, node_id, node_name, signal_strength, details
+- **{pubkey}_messages.txt**: Pipe-delimited: timestamp|message_type|role|content|sender
+- **{pubkey}_memory.json**: JSON with fields: name, is_online, first_seen, last_seen, last_advert, total_adverts
 
-**Indexes**:
-- Messages: conversation_id + timestamp, content (for search)
-- Adverts: node_id + timestamp, timestamp
-- Nodes: is_online + last_seen
-- Network events: event_type + timestamp, node_id + timestamp
-- All tables have automatic primary keys
+**Efficiency**:
+- Adverts: Only reads last N lines using deque (efficient for large files)
+- Messages: Reads full file for conversation history (kept per user for manageable size)
+- Memories: JSON for structured data storage
 
 **Key Methods** (see `src/meshbot/storage.py`):
 - Adverts: `add_advert()`, `search_adverts()`, `get_recent_adverts()`
@@ -404,11 +405,11 @@ The memory system uses SQLite database storage in `data/meshbot.db`:
 - Messages: `add_message()`, `get_conversation_messages()`, `search_messages()`
 
 To modify:
-1. Update `src/meshbot/storage.py` for schema changes
+1. Update `src/meshbot/storage.py` for file format changes
 2. Update `src/meshbot/memory.py` for interface changes
 3. Update `src/meshbot/meshcore_interface.py` for event handling
 4. Update `src/meshbot/agent.py` for new tools
-5. Add database migrations if changing schema
+5. Edit `data/system_prompt.txt` to customize agent behavior
 6. Update documentation if interface changes
 
 ## 🚨 Troubleshooting
