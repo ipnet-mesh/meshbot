@@ -109,7 +109,7 @@ pytest tests/test_basic.py -v
    - Structured responses
    - Automatic message splitting for MeshCore length limits
    - Smart message routing (DM vs channel)
-   - **Smart activation phrase** - automatically uses `@{node_name}` from configured node name, falls back to `ACTIVATION_PHRASE`
+   - **Smart activation** - responds to DMs and `@{node_name}` mentions in channels
    - Node name set on startup before sending local advertisement
    - API request limits (max 5 requests per message via UsageLimits)
    - Network context injection (last 5 network events included in prompts)

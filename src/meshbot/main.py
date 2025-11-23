@@ -55,7 +55,6 @@ def cli() -> None:
 
 @cli.command()
 @click.option("--model", "-m", help="AI model to use (e.g., openai:gpt-4o-mini)")
-@click.option("--activation-phrase", help="Activation phrase for channel messages")
 @click.option("--listen-channel", help="Channel to listen to (e.g., 0 for General)")
 @click.option(
     "--max-message-length", type=int, help="Maximum message length in characters"
@@ -95,7 +94,6 @@ def cli() -> None:
 )
 def run(
     model: Optional[str],
-    activation_phrase: Optional[str],
     listen_channel: Optional[str],
     max_message_length: Optional[int],
     meshcore_type: Optional[str],
@@ -134,8 +132,6 @@ def run(
         # AI configuration
         if model:
             app_config.ai.model = model
-        if activation_phrase:
-            app_config.ai.activation_phrase = activation_phrase
         if listen_channel:
             app_config.ai.listen_channel = listen_channel
         if max_message_length:
@@ -186,7 +182,6 @@ def run(
         model=app_config.ai.model,
         memory_path=app_config.memory.storage_path,
         meshcore_connection_type=app_config.meshcore.connection_type,
-        activation_phrase=app_config.ai.activation_phrase,
         listen_channel=app_config.ai.listen_channel,
         max_message_length=app_config.ai.max_message_length,
         custom_prompt=custom_prompt,
@@ -246,7 +241,6 @@ async def run_agent(agent: MeshBotAgent) -> None:
 @click.argument("from_id")
 @click.argument("message")
 @click.option("--model", "-m", help="AI model to use (e.g., openai:gpt-4o-mini)")
-@click.option("--activation-phrase", help="Activation phrase for channel messages")
 @click.option("--listen-channel", help="Channel to listen to (e.g., 0 for General)")
 @click.option(
     "--max-message-length", type=int, help="Maximum message length in characters"
@@ -289,7 +283,6 @@ def test(
     from_id: str,
     message: str,
     model: Optional[str],
-    activation_phrase: Optional[str],
     listen_channel: Optional[str],
     max_message_length: Optional[int],
     meshcore_type: str,
@@ -327,8 +320,6 @@ def test(
         # AI configuration
         if model:
             app_config.ai.model = model
-        if activation_phrase:
-            app_config.ai.activation_phrase = activation_phrase
         if listen_channel:
             app_config.ai.listen_channel = listen_channel
         if max_message_length:
@@ -401,7 +392,6 @@ def test(
             model=app_config.ai.model,
             memory_path=app_config.memory.storage_path,
             meshcore_connection_type=app_config.meshcore.connection_type,
-            activation_phrase=app_config.ai.activation_phrase,
             listen_channel=app_config.ai.listen_channel,
             max_message_length=app_config.ai.max_message_length,
             custom_prompt=custom_prompt,

@@ -49,7 +49,6 @@ MESHCORE_PORT=/dev/ttyUSB0     # for serial
 # MESHCORE_HOST=192.168.1.100  # for TCP
 
 # Optional
-ACTIVATION_PHRASE=@bot
 LISTEN_CHANNEL=0
 MAX_MESSAGE_LENGTH=120
 LOG_LEVEL=INFO
@@ -80,7 +79,7 @@ docker run -it --rm \
 - **📊 Situational Context**: Network events and node names included in LLM context for awareness
 - **💰 Cost Control**: API request limits (max 5 per message) to prevent excessive LLM usage
 - **⚙️ Configurable**: Flexible configuration via files and environment variables
-- **🎯 Message Routing**: Intelligent DM and channel message handling with activation phrases
+- **🎯 Message Routing**: Intelligent DM and channel message handling with @NodeName mentions
 - **🔌 OpenAI-Compatible**: Works with any OpenAI-compatible endpoint (OpenAI, Groq, Ollama, etc.)
 
 ## Alternative: Install from Source
@@ -126,9 +125,9 @@ LLM_API_KEY=your_api_key_here
 # LLM_BASE_URL=http://localhost:11434/v1  # For Ollama or other endpoints
 
 # Bot Behavior
-ACTIVATION_PHRASE=@bot          # Required in channel messages
 LISTEN_CHANNEL=0                # Channel to monitor
 MAX_MESSAGE_LENGTH=120          # MeshCore message length limit
+# MESHCORE_NODE_NAME=MeshBot    # Bot will respond to @MeshBot mentions
 
 # MeshCore Configuration
 MESHCORE_CONNECTION_TYPE=mock
@@ -200,18 +199,18 @@ meshbot
 
 #### Direct Messages (DMs)
 - Bot **always** responds to direct messages
-- No activation phrase required
 - Each user gets a separate conversation log in `logs/dm_{user_id}.txt`
 
 #### Channel Messages
-- Bot only responds if message contains the activation phrase (default: `@bot`)
+- Bot only responds when mentioned by node name (e.g., `@MeshBot`)
 - Only monitors the configured listen channel (default: channel 0)
 - Shared conversation log in `logs/channel.txt`
+- Node name is set via `MESHCORE_NODE_NAME` environment variable
 
 Example:
 ```
-User: @bot what's the weather?     → Bot responds
-User: hello everyone              → Bot ignores (no activation phrase)
+User: @MeshBot what's the weather?  → Bot responds
+User: hello everyone                → Bot ignores (not mentioned)
 ```
 
 #### Message Length Limits
@@ -262,7 +261,6 @@ Create `config.json`:
     "base_url": null,
     "max_tokens": 500,
     "temperature": 0.7,
-    "activation_phrase": "@bot",
     "listen_channel": "0",
     "max_message_length": 120
   },
@@ -295,7 +293,7 @@ async def main():
     agent = MeshBotAgent(
         model="openai:gpt-4o-mini",
         meshcore_connection_type="mock",
-        activation_phrase="@assistant",
+        node_name="Assistant",  # Bot will respond to @Assistant mentions
         listen_channel="0",
         max_message_length=120,
         custom_prompt=custom_prompt
@@ -346,8 +344,10 @@ LLM_BASE_URL=http://localhost:11434/v1
 ### Message Behavior
 
 ```bash
+# Node name - bot responds to @NodeName mentions in channels
+MESHCORE_NODE_NAME=MeshBot
+
 # Channel settings
-ACTIVATION_PHRASE=@bot        # Phrase required in channel messages
 LISTEN_CHANNEL=0              # Which channel to monitor
 
 # Message length
@@ -488,9 +488,9 @@ services:
     environment:
       - LLM_MODEL=openai:gpt-4o-mini
       - LLM_API_KEY=${LLM_API_KEY}
+      - MESHCORE_NODE_NAME=MeshBot
       - MESHCORE_CONNECTION_TYPE=serial
       - MESHCORE_PORT=/dev/ttyUSB0
-      - ACTIVATION_PHRASE=@bot
       - MAX_MESSAGE_LENGTH=120
       - LOG_LEVEL=INFO
     # Optionally use env_file instead:
@@ -534,9 +534,9 @@ meshbot --meshcore-type ble --meshcore-address XX:XX:XX:XX:XX:XX
 # Production environment variables
 export LLM_MODEL=openai:gpt-4o-mini
 export LLM_API_KEY=your_production_key
+export MESHCORE_NODE_NAME=MeshBot
 export MESHCORE_CONNECTION_TYPE=serial
 export MESHCORE_PORT=/dev/ttyUSB0
-export ACTIVATION_PHRASE=@meshbot
 export MAX_MESSAGE_LENGTH=120
 export LOG_LEVEL=INFO
 ```
@@ -549,7 +549,7 @@ export LOG_LEVEL=INFO
 2. **MeshCore Connection**: Check port permissions (`sudo usermod -a -G dialout $USER`)
 3. **API Keys**: Set `LLM_API_KEY` environment variable
 4. **Long Messages**: Adjust `MAX_MESSAGE_LENGTH` if messages are too short/long
-5. **Channel Not Responding**: Ensure messages include activation phrase (default `@bot`)
+5. **Channel Not Responding**: Ensure messages mention the bot's node name (e.g., `@MeshBot`)
 
 ### Debug Mode
 
