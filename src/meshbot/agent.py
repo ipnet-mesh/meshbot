@@ -890,37 +890,31 @@ class MeshBotAgent:
             # Create dependencies for this interaction
             deps = MeshBotDependencies(meshcore=self.meshcore, memory=self.memory)
 
-            # Build the prompt with conversation history and network context
-            # Get recent network events for situational awareness
-            network_events = self.meshcore.get_recent_network_events(limit=5)
+            # Build the prompt with conversation history
+            # Emphasize the current user message and reduce network event prominence
 
             if (
                 context and len(context) > 1
             ):  # Only include history if there's more than just current message
                 # Include previous context in the prompt (excluding the message we just added)
-                prompt = ""
-
-                # Add network events if available
-                if network_events:
-                    prompt += "Recent Network Activity:\n"
-                    for event in network_events:
-                        prompt += f"  {event}\n"
-                    prompt += "\n"
-
-                prompt += "Conversation history:\n"
+                prompt = "Conversation history:\n"
                 for msg in context[:-1][-10:]:  # Last 10 messages, excluding current
                     role_name = "User" if msg["role"] == "user" else "Assistant"
                     prompt += f"{role_name}: {msg['content']}\n"
-                prompt += f"\nUser: {message.content}\nAssistant:"
-            else:
-                # For first message, still include network events if available
+                prompt += f"\nCurrent message: {message.content}\n"
+
+                # Add network events at the end (less prominent) and only if recent
+                network_events = self.meshcore.get_recent_network_events(limit=3)
                 if network_events:
-                    prompt = "Recent Network Activity:\n"
-                    for event in network_events:
-                        prompt += f"  {event}\n"
-                    prompt += f"\nUser: {message.content}\nAssistant:"
-                else:
-                    prompt = message.content
+                    prompt += "\n(Background: Recent network activity: "
+                    event_summary = ", ".join([e.split("] ")[1] if "] " in e else e for e in network_events])
+                    prompt += f"{event_summary})\n"
+
+                prompt += "\nAssistant:"
+            else:
+                # For first message, just use the message content
+                # Don't include network events for first message to avoid confusion
+                prompt = message.content
 
             # Run agent with conversation context
             # Limit API requests to prevent excessive costs
