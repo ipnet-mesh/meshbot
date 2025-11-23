@@ -15,6 +15,12 @@ from .meshcore_interface import (
     MeshCoreMessage,
     create_meshcore_interface,
 )
+from .config import WeatherConfig
+
+try:
+    import aiohttp
+except ImportError:
+    aiohttp = None
 
 logger = logging.getLogger(__name__)
 
@@ -112,15 +118,24 @@ class MeshBotAgent:
         base_instructions = (
             "You are MeshBot, an AI assistant that communicates through the MeshCore network. "
             "You are helpful, concise, and knowledgeable. "
-            "MeshCore is a simple text messaging system with strict limitations:\n"
-            f"- Keep responses SHORT and TO THE POINT (max {self.max_message_length} chars)\n"
-            "- NO emoji, NO newlines, NO complex formatting\n"
-            "- Use plain text only\n"
-            "- Be direct and clear\n"
-            "- If you need to say more, keep it brief anyway\n"
-            "- IMPORTANT: Use tools ONLY when absolutely necessary. For simple queries, respond directly.\n"
-            "- NEVER call multiple tools for a single simple request.\n"
-            "When users send 'ping', respond with 'pong'."
+            "MeshCore is a simple text messaging system with some limitations:\n"
+            f"- Keep responses concise and clear (prefer under 200 chars, max {self.max_message_length})\n"
+            "- Use newlines for better readability when helpful\n"
+            "- NO emoji, but you CAN use basic punctuation like • — – for lists and separation\n"
+            "- Use plain text with good structure\n"
+            "- Be direct and helpful\n"
+            "- Use tools ONLY when absolutely necessary - prefer direct responses\n"
+            "- Maximum 1-2 tool calls per message, avoid chains\n"
+            "- For simple questions, respond directly without tools\n"
+            "- IMPORTANT: When calling weather API, make the HTTP request INSIDE the tool, don't call the tool repeatedly\n"
+            "- CRITICAL: get_weather tool makes HTTP request automatically - call it ONCE only\n"
+            "When users send 'ping', respond with 'pong'\n"
+            "\n"
+            "Examples of good formatting:\n"
+            "Status: Connected • 20 contacts online • 51 messages processed\n"
+            "Time: 14:30 • Date: 2025-01-15\n"
+            "Result: Success • Data saved • Ready for next task\n"
+            "Nodes found: 12 online • 8 with names • 4 new today\n"
         )
 
         # Add custom prompt if provided
@@ -162,6 +177,7 @@ class MeshBotAgent:
             ctx: RunContext[MeshBotDependencies], user_id: str
         ) -> str:
             """Get information about a user."""
+            logger.info(f"🔧 TOOL CALL: get_user_info(user_id='{user_id}')")
             try:
                 memory = await ctx.deps.memory.get_user_memory(user_id)
 
@@ -170,6 +186,7 @@ class MeshBotAgent:
                 info += f"First seen: {memory.get('first_seen', 'Never')}\n"
                 info += f"Last seen: {memory.get('last_seen', 'Never')}\n"
 
+                logger.info(f"🔧 TOOL RESULT: get_user_info -> {len(info)} chars")
                 return info
             except Exception as e:
                 logger.error(f"Error getting user info: {e}")
@@ -180,33 +197,19 @@ class MeshBotAgent:
             ctx: RunContext[MeshBotDependencies], destination: str
         ) -> str:
             """Send a status request to a MeshCore node (similar to ping)."""
+            logger.info(f"🔧 TOOL CALL: status_request(destination='{destination}')")
             try:
                 # Use send_statusreq instead of ping (which doesn't exist)
                 # This will request status from the destination node
                 success = await ctx.deps.meshcore.ping_node(destination)
-                return f"Status request to {destination}: {'Success' if success else 'Failed'}"
+                result = f"Status request to {destination}: {'Success' if success else 'Failed'}"
+                logger.info(f"🔧 TOOL RESULT: status_request -> {result}")
+                return result
             except Exception as e:
                 logger.error(f"Error sending status request: {e}")
                 return f"Status request to {destination} failed"
 
-        @self.agent.tool
-        async def get_contacts(ctx: RunContext[MeshBotDependencies]) -> str:
-            """Get list of available contacts."""
-            try:
-                contacts = await ctx.deps.meshcore.get_contacts()
-                if not contacts:
-                    return "No contacts available."
 
-                contact_list = "Available contacts:\n"
-                for contact in contacts:
-                    status = "🟢" if contact.is_online else "🔴"
-                    name = contact.name or contact.public_key[:8] + "..."
-                    contact_list += f"{status} {name} ({contact.public_key[:16]}...)\n"
-
-                return contact_list.strip()
-            except Exception as e:
-                logger.error(f"Error getting contacts: {e}")
-                return "Error retrieving contacts."
 
         @self.agent.tool
         async def get_conversation_history(
@@ -363,6 +366,7 @@ class MeshBotAgent:
             Returns:
                 Bot status information including uptime, memory stats, and connection status
             """
+            logger.info(f"📊 TOOL CALL: get_bot_status()")
             try:
                 # Get memory statistics
                 memory_stats = await ctx.deps.memory.get_statistics()
@@ -382,6 +386,7 @@ class MeshBotAgent:
                     f"Users: {memory_stats.get('total_users', 0)}"
                 )
 
+                logger.info(f"📊 TOOL RESULT: get_bot_status -> {online_count}/{len(contacts)} contacts, {memory_stats.get('total_messages', 0)} messages")
                 return status
             except Exception as e:
                 logger.error(f"Error getting bot status: {e}")
@@ -526,7 +531,7 @@ class MeshBotAgent:
         ) -> str:
             """Search historical network events (non-advertisement events) with filters.
 
-            Note: Use search_adverts() for advertisement events, use this for other
+            Note: Use list_adverts() for advertisement events, use this for other
             network events like PATH_UPDATE, STATUS_RESPONSE, etc.
 
             Args:
@@ -645,13 +650,13 @@ class MeshBotAgent:
                 return "Error searching messages"
 
         @self.agent.tool
-        async def search_adverts(
+        async def list_adverts(
             ctx: RunContext[MeshBotDependencies],
             node_id: Optional[str] = None,
             hours_ago: Optional[int] = None,
             limit: int = 20,
         ) -> str:
-            """Search advertisement history with filters.
+            """List advertisement history with filters.
 
             Advertisements are announcements from mesh nodes advertising their presence.
             This tool searches the historical log of all advertisements received.
@@ -707,6 +712,150 @@ class MeshBotAgent:
             except Exception as e:
                 logger.error(f"Error searching adverts: {e}")
                 return "Error searching advertisements"
+
+        @self.agent.tool
+        async def get_weather(
+            ctx: RunContext[MeshBotDependencies], 
+            location: str = "current",
+            latitude: Optional[float] = None,
+            longitude: Optional[float] = None,
+            forecast_days: int = 3
+        ) -> str:
+            """Get weather forecast using Open-Meteo API.
+
+            Args:
+                location: Location name (default: current location from env vars)
+                latitude: Latitude override (default: from env var)
+                longitude: Longitude override (default: from env var)
+                forecast_days: Number of forecast days (default: 3)
+
+            Returns:
+                Concise weather summary with forecast
+            """
+            """Get weather forecast using Open-Meteo API.
+
+            Args:
+                location: Location name (default: current location from env vars)
+                latitude: Latitude override (default: from env var)
+                longitude: Longitude override (default: from env var)
+                forecast_days: Number of forecast days (default: 3)
+
+            Returns:
+                Concise weather summary with forecast
+            """
+            logger.info(f"🌤️ TOOL CALL: get_weather(location='{location}', lat={latitude}, lon={longitude}, days={forecast_days})")
+            try:
+                import os
+                import json
+                
+                # Check if aiohttp is available
+                if not aiohttp:
+                    return "Weather service unavailable (aiohttp not installed)"
+                
+                # Get coordinates from parameters or environment
+                if latitude is not None and longitude is not None:
+                    lat, lon = latitude, longitude
+                elif location == "current":
+                    # Try to get coordinates from environment variables
+                    lat = float(os.getenv("WEATHER_LATITUDE", "51.5074"))  # Default to London
+                    lon = float(os.getenv("WEATHER_LONGITUDE", "-0.1278"))  # Default to London
+                else:
+                    # For named locations, use predefined coordinates
+                    locations = {
+                        "london": (51.5074, -0.1278),
+                        "manchester": (53.4808, -2.2426),
+                        "cambridge": (52.2053, 0.1218),
+                        "birmingham": (52.4862, -1.8904),
+                        "glasgow": (55.8642, -4.2518),
+                        "liverpool": (53.4084, -2.9916),
+                        "leeds": (53.7966, -1.7532),
+                        "sheffield": (53.3811, -1.4701),
+                        "bristol": (51.4545, -2.5879),
+                        "cardiff": (51.4816, -3.1791),
+                        "belfast": (54.5970, -5.9300),
+                        "newcastle": (54.9783, -1.6174),
+                        "nottingham": (52.9508, -1.1438),
+                        "leicester": (52.6369, -1.0979),
+                        "coventry": (52.4068, -1.5120),
+                        "southampton": (50.9097, -1.4044),
+                        "portsmouth": (50.7957, -1.1077),
+                        "reading": (51.4543, -0.9781),
+                        "oxford": (51.7520, -1.2577),
+                        "brighton": (50.8288, -0.1346),
+                        "southampton": (50.9097, -1.4044),
+                        "ipswich": (52.0597, 1.1455),
+                    }
+                    
+                    location_key = location.lower().replace(" ", "")
+                    if location_key in locations:
+                        lat, lon = locations[location_key]
+                    else:
+                        return f"Unknown location: {location}. Available: {', '.join(locations.keys())}"
+
+                # Get forecast days from environment or parameter
+                days = int(os.getenv("WEATHER_FORECAST_DAYS", str(forecast_days)))
+                
+                # Build Open-Meteo API URL
+                url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&forecast_days={days}&hourly=temperature_2m,precipitation_probability,wind_speed_10m"
+                logger.info(f"🌐 Open-Meteo API request: {url}")
+                
+                # Make HTTP request
+                try:
+                    logger.info(f"🌐 Creating aiohttp session...")
+                    async with aiohttp.ClientSession() as session:
+                        logger.info(f"🌐 Making HTTP request to: {url}")
+                        async with session.get(url, timeout=15) as response:
+                            logger.info(f"🌐 HTTP response status: {response.status}")
+                            if response.status == 200:
+                                data = await response.json()
+                                logger.info(f"🌐 Open-Meteo response received: {len(str(data))} chars")
+                            
+                            # Extract forecast data
+                            if not data or "forecast" not in data:
+                                logger.error(f"🌐 No forecast field in response: {data}")
+                                return "Weather forecast data unavailable"
+                            
+                            forecast_data = data["forecast"]
+                            if not forecast_data:
+                                logger.error(f"🌐 No forecast data in response: {data}")
+                                return "No forecast data available"
+                            
+                            # Process current weather and forecast
+                            current = forecast_data[0] if forecast_data else {}
+                            temp_current = current.get("temperature", {}).get("celsius", "N/A")
+                            wind_current = current.get("wind", {}).get("speed", {}).get("10m", 0) * 2.237  # Convert m/s to mph
+                            precip_prob = current.get("precipitation", {}).get("probability", {}).get("12h", 0) * 100
+                            
+                            # Build forecast summary
+                            forecast_summary = ""
+                            for day_data in forecast_data[1:days+1]:
+                                day_temp = day_data.get("temperature", {}).get("celsius", "N/A")
+                                day_precip = day_data.get("precipitation", {}).get("probability", {}).get("12h", 0) * 100
+                                day_wind = day_data.get("wind", {}).get("speed", {}).get("10m", 0) * 2.237
+                                date = day_data.get("date", "Unknown")
+                                
+                                if date != "Unknown":
+                                    forecast_summary += f"{date}: {day_temp}°C, {day_precip:.0f}% rain, {day_wind:.1f}mph\n"
+                            
+                            # Format result
+                            result = (
+                                f"Weather for {location.replace('_', ' ').title()}:\n"
+                                f"🌡 {temp_current}°C\n"
+                                f"💨 {wind_current:.1f}mph\n"
+                                f"🌧️ {precip_prob:.0f}% rain chance\n"
+                                f"📅 {days}-day forecast:\n{forecast_summary}"
+                            )
+                            
+                            return result.strip()
+                except Exception as http_err:
+                    logger.error(f"🌐 HTTP request failed: {http_err}")
+                    return "Weather service unavailable (HTTP error)"            
+                logger.info(f"🌤️ TOOL RESULT: get_weather -> {len(result)} chars")
+                return result
+                
+            except Exception as e:
+                logger.error(f"Error getting weather: {e}")
+                return "Weather information unavailable"
 
         @self.agent.tool
         async def get_node_info(
@@ -850,9 +999,12 @@ class MeshBotAgent:
             except Exception as e:
                 logger.warning(f"Could not set node name: {e}")
 
-        # Sync companion node clock
+        # Sync companion node clock (with timeout)
         try:
-            await self.meshcore.sync_time()
+            logger.info("Syncing companion node clock...")
+            await asyncio.wait_for(self.meshcore.sync_time(), timeout=5.0)
+        except asyncio.TimeoutError:
+            logger.warning("Clock sync timed out after 5 seconds - continuing anyway")
         except Exception as e:
             logger.warning(f"Clock sync failed: {e}")
 
@@ -912,8 +1064,11 @@ class MeshBotAgent:
         Returns:
             List of message chunks
         """
-        # Remove any newlines and extra whitespace
-        message = " ".join(message.split())
+        # Normalize whitespace but preserve intentional newlines for formatting
+        # Replace multiple newlines with single ones, and clean up extra spaces
+        lines = message.strip().split('\n')
+        cleaned_lines = [' '.join(line.split()) for line in lines]
+        message = '\n'.join(cleaned_lines)
 
         # If message fits, return as-is
         if len(message) <= self.max_message_length:
@@ -965,6 +1120,9 @@ class MeshBotAgent:
           1. Message is on the configured listen_channel
           2. Message mentions the bot's node name (e.g., @NodeName)
         """
+        logger.debug(f"Checking response for message: sender={message.sender}, type={message.message_type}, channel={getattr(message, 'channel', None)}, content='{message.content}'")
+        logger.debug(f"Bot config: own_key={self._own_public_key}, mention_name={self._mention_name}, listen_channel={self.listen_channel}")
+
         # CRITICAL: Never respond to messages from the bot itself
         # This prevents infinite loops where the bot responds to its own messages
         if self._own_public_key and message.sender:
@@ -979,6 +1137,7 @@ class MeshBotAgent:
 
         # Always respond to DMs
         if message.message_type == "direct":
+            logger.debug("Direct message - will respond")
             return True
 
         # For channel messages, check channel and node name mention
@@ -987,6 +1146,7 @@ class MeshBotAgent:
             # Handle both string channel names and numeric IDs
             message_channel = str(getattr(message, "channel", "0"))
             if message_channel != self.listen_channel:
+                logger.debug(f"Channel message not on listen channel {self.listen_channel}: {message_channel}")
                 return False
 
             # If we don't have a mention name (node name not set), don't respond to channel messages
@@ -1001,8 +1161,11 @@ class MeshBotAgent:
             content_lower = message.content.lower()
             mention_lower = self._mention_name.lower()
 
+            logger.debug(f"Checking for mention: '{mention_lower}' in '{content_lower}'")
+
             # Direct match
             if mention_lower in content_lower:
+                logger.debug("Found direct mention - will respond")
                 return True
 
             # Check for bracketed format: @[nodename]
@@ -1011,11 +1174,14 @@ class MeshBotAgent:
                 node_name = mention_lower[1:]  # Remove @ prefix
                 bracketed_format = f"@[{node_name}]"
                 if bracketed_format in content_lower:
+                    logger.debug("Found bracketed mention - will respond")
                     return True
 
+            logger.debug("No mention found - will not respond to channel message")
             return False
 
         # Default: don't respond to broadcast messages or unknown types
+        logger.debug(f"Unknown message type {message.message_type} - will not respond")
         return False
 
     async def _handle_message(
@@ -1032,7 +1198,12 @@ class MeshBotAgent:
             True if message was handled successfully, False otherwise
         """
         try:
-            logger.info(f"Received message from {message.sender}: {message.content}")
+            logger.info(f"=== MESSAGE RECEIVED ===")
+            logger.info(f"From: {message.sender}")
+            logger.info(f"Content: '{message.content}'")
+            logger.info(f"Type: {message.message_type}")
+            logger.info(f"Channel: {getattr(message, 'channel', None)}")
+            logger.info(f"Timestamp: {message.timestamp}")
 
             # Check if we should respond to this message
             should_respond = self._should_respond_to_message(message)
@@ -1071,13 +1242,17 @@ class MeshBotAgent:
             if (
                 context and len(context) > 1
             ):  # Only include history if there's more than just current message
-                # Include previous context in the prompt (excluding the message we just added)
-                prompt = "Conversation history:\n"
-                for msg in context[:-1][-10:]:  # Last 10 messages, excluding current
-                    role_name = "User" if msg["role"] == "user" else "Assistant"
-                    prompt += f"{role_name}: {msg['content']}\n"
-                prompt += f"\nCurrent message: {message.content}\n"
-                prompt += "\nAssistant:"
+                # Include only recent context to prevent confusion and tool-calling loops
+                prompt = ""
+                # for msg in context[:-1][-3:]:  # Last 3 messages only, excluding current
+                #     role_name = "User" if msg["role"] == "user" else "Assistant"
+                #     content = msg['content']
+                #     # Truncate very long messages to keep prompt clean
+                #     if len(content) > 100:
+                #         content = content[:97] + "..."
+                #     prompt += f"{role_name}: {content}\n"
+                prompt += f"Current message: {message.content}\n"
+                prompt += "Respond briefly and directly."
             else:
                 # For first message, just use the message content
                 prompt = message.content
@@ -1087,12 +1262,30 @@ class MeshBotAgent:
             from pydantic_ai import UsageLimits
 
             usage_limits = UsageLimits(
-                request_limit=20,  # Max 20 LLM requests per message (includes tool calls)
+                request_limit=20,  # Increased to 20 for more complex requests
             )
-            result = await self.agent.run(prompt, deps=deps, usage_limits=usage_limits)
+            
+            # Log the full prompt being sent to LLM
+            logger.info("=== SENDING PROMPT TO LLM ===")
+            logger.info(f"Prompt: {prompt}")
+            logger.info(f"Context length: {len(prompt)} characters")
+            logger.info("=== END PROMPT ===")
+            
+            try:
+                result = await self.agent.run(prompt, deps=deps, usage_limits=usage_limits)
+                logger.info(f"✅ LLM run completed successfully")
+            except Exception as e:
+                logger.error(f"❌ LLM run failed: {e}")
+                raise
 
             # Send response
             response = result.output.response
+            logger.info("=== LLM RESPONSE ===")
+            logger.info(f"Raw response: {result}")
+            logger.info(f"Response text: {response}")
+            logger.info(f"Confidence: {result.output.confidence}")
+            logger.info("=== END LLM RESPONSE ===")
+            
             if response:
                 # Determine destination based on message type
                 if message.message_type == "channel":
@@ -1108,9 +1301,11 @@ class MeshBotAgent:
                 logger.info(
                     f"Sending {len(message_chunks)} message(s) to {destination}"
                 )
+                logger.info(f"Message chunks: {message_chunks}")
 
                 # Send all chunks
                 for i, chunk in enumerate(message_chunks):
+                    logger.info(f"Sending chunk {i+1}/{len(message_chunks)}: {chunk}")
                     await self.meshcore.send_message(destination, chunk)
 
                     # Small delay between messages to avoid flooding
@@ -1217,7 +1412,28 @@ class MeshBotAgent:
 
             return success
         except Exception as e:
-            logger.error(f"Error sending message: {e}")
+            error_msg = str(e)
+            logger.error(f"Error handling message: {error_msg}", exc_info=True)
+            
+            # Detect tool-calling loop and provide fallback response
+            if "request_limit" in error_msg or "exceed" in error_msg.lower():
+                logger.warning("🔄 Tool-calling loop detected - providing fallback response")
+                try:
+                    # Send a simple direct response without tools
+                    fallback_response = "Sorry, I had trouble processing that. How can I help you?"
+                    if message.message_type == "channel":
+                        destination = message.channel or "0"
+                    else:
+                        destination = message.sender
+                    
+                    await self.meshcore.send_message(destination, fallback_response)
+                    logger.info(f"✅ Fallback response sent: {fallback_response}")
+                    return True
+                except Exception as fallback_error:
+                    logger.error(f"Fallback response failed: {fallback_error}")
+            
+            if raise_errors:
+                raise
             return False
 
     async def get_status(self) -> Dict[str, Any]:

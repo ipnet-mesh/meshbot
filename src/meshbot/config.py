@@ -78,6 +78,21 @@ class MemoryConfig:
     storage_path: Path = field(
         default_factory=lambda: Path(os.getenv("MEMORY_PATH", "data/meshbot.db"))
     )
+
+
+@dataclass
+class WeatherConfig:
+    """Configuration for weather service."""
+
+    latitude: Optional[float] = field(
+        default_factory=lambda: float(os.getenv("WEATHER_LATITUDE")) if os.getenv("WEATHER_LATITUDE") else None
+    )
+    longitude: Optional[float] = field(
+        default_factory=lambda: float(os.getenv("WEATHER_LONGITUDE")) if os.getenv("WEATHER_LONGITUDE") else None
+    )
+    forecast_days: int = field(
+        default_factory=lambda: int(os.getenv("WEATHER_FORECAST_DAYS", "3"))
+    )
     max_messages_per_user: int = field(
         default_factory=lambda: int(os.getenv("MEMORY_MAX_MESSAGES", "100"))
     )

@@ -348,7 +348,14 @@ class RealMeshCoreInterface(MeshCoreInterface):
             # Get bot's own public key and node name for message filtering
             try:
                 self_info = self._meshcore.self_info
-                if self_info and isinstance(self_info, dict):
+                logger.debug(f"self_info type: {type(self_info)}, value: {self_info}")
+                
+                # Handle different possible types of self_info
+                if self_info is None:
+                    logger.warning("self_info is None")
+                    self._own_public_key = None
+                    self._own_node_name = None
+                elif isinstance(self_info, dict):
                     self._own_public_key = self_info.get("public_key") or self_info.get(
                         "pubkey_prefix"
                     )
@@ -366,11 +373,31 @@ class RealMeshCoreInterface(MeshCoreInterface):
                         logger.info(f"Bot node name: {self._own_node_name}")
                     else:
                         logger.info("Bot node name not set (adv_name not in self_info)")
+                elif hasattr(self_info, '__dict__'):
+                    # Handle object with attributes
+                    self._own_public_key = getattr(self_info, "public_key", None) or getattr(self_info, "pubkey_prefix", None)
+                    self._own_node_name = getattr(self_info, "adv_name", None)
+                    
+                    if self._own_public_key:
+                        logger.info(f"Bot public key: {self._own_public_key[:16]}...")
+                    if self._own_node_name:
+                        logger.info(f"Bot node name: {self._own_node_name}")
                 else:
                     logger.warning(
-                        f"self_info returned unexpected type: {type(self_info)}"
+                        f"self_info returned unexpected type: {type(self_info)}, value: {self_info}"
                     )
-                    self._own_public_key = None
+                    # Try to extract from string representation
+                    if isinstance(self_info, str):
+                        import re
+                        pubkey_match = re.search(r'public_key[\'":\s]*([a-fA-F0-9]+)', self_info)
+                        if pubkey_match:
+                            self._own_public_key = pubkey_match.group(1)
+                            logger.info(f"Extracted public key from string: {self._own_public_key[:16] if self._own_public_key else 'None'}...")
+                        else:
+                            self._own_public_key = None
+                    else:
+                        self._own_public_key = None
+                    
                     self._own_node_name = None
             except Exception as e:
                 logger.warning(f"Could not retrieve self info: {e}")
@@ -552,7 +579,9 @@ class RealMeshCoreInterface(MeshCoreInterface):
     async def _on_message_received(self, event) -> None:
         """Handle incoming message events."""
         try:
+            logger.debug(f"Message event received: {event}")
             payload = event.payload
+            logger.debug(f"Message payload: {payload}")
 
             # Extract message fields from MeshCore event payload
             sender = payload.get("pubkey_prefix", "")
@@ -560,6 +589,8 @@ class RealMeshCoreInterface(MeshCoreInterface):
             sender_timestamp = payload.get("sender_timestamp", 0)
             msg_type = payload.get("type", "PRIV")
             channel = payload.get("channel", "0")  # Extract channel ID
+
+            logger.info(f"Processing message: sender={sender}, content='{content}', type={msg_type}, channel={channel}")
 
             # Map MeshCore message types to our types
             message_type = "direct" if msg_type == "PRIV" else "channel"
@@ -577,18 +608,23 @@ class RealMeshCoreInterface(MeshCoreInterface):
                 channel=str(channel) if channel is not None else None,
             )
 
+            logger.info(f"Created MeshCoreMessage: {message}")
+            logger.info(f"Calling {len(self._message_handlers)} message handlers")
+
             # Call all registered handlers
-            for handler in self._message_handlers:
+            for i, handler in enumerate(self._message_handlers):
                 try:
+                    logger.debug(f"Calling handler {i}: {handler}")
                     if asyncio.iscoroutinefunction(handler):
                         await handler(message)
                     else:
                         handler(message)
+                    logger.debug(f"Handler {i} completed successfully")
                 except Exception as e:
-                    logger.error(f"Error in message handler: {e}", exc_info=True)
+                    logger.error(f"Error in message handler {i}: {e}", exc_info=True)
 
         except Exception as e:
-            logger.error(f"Error processing message event: {e}")
+            logger.error(f"Error processing message event: {e}", exc_info=True)
 
     async def _on_network_event(self, event) -> None:
         """Handle network events (adverts, contacts, paths, etc.) for situational awareness."""
