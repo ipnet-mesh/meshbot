@@ -53,16 +53,24 @@ class BaseStorage:
         safe_key = "".join(c for c in pubkey if c.isalnum())
         return safe_key[:8]
 
-    def _get_node_dir(self, pubkey: str) -> Path:
-        """Get the directory path for a node."""
+    def _get_node_dir_path(self, pubkey: str) -> Path:
+        """Get the directory path for a node WITHOUT creating it."""
         prefix = self._get_node_prefix(pubkey)
-        node_dir = self.nodes_dir / prefix
+        return self.nodes_dir / prefix
+
+    def _get_node_dir(self, pubkey: str) -> Path:
+        """Get the directory path for a node and create it if needed."""
+        node_dir = self._get_node_dir_path(pubkey)
         node_dir.mkdir(parents=True, exist_ok=True)
         return node_dir
 
+    def _get_channel_dir_path(self, channel_number: str) -> Path:
+        """Get the directory path for a channel WITHOUT creating it."""
+        return self.channels_dir / channel_number
+
     def _get_channel_dir(self, channel_number: str) -> Path:
-        """Get the directory path for a channel."""
-        channel_dir = self.channels_dir / channel_number
+        """Get the directory path for a channel and create it if needed."""
+        channel_dir = self._get_channel_dir_path(channel_number)
         channel_dir.mkdir(parents=True, exist_ok=True)
         return channel_dir
 
@@ -70,7 +78,7 @@ class BaseStorage:
         self, conversation_id: str, message_type: str = "direct"
     ) -> Path:
         """
-        Get the messages file path for a conversation.
+        Get the messages file path for a conversation and create directory if needed.
 
         Args:
             conversation_id: Channel number or node pubkey
@@ -86,10 +94,38 @@ class BaseStorage:
             # Node: data/nodes/{pubkey_prefix}/messages.txt
             return self._get_node_dir(conversation_id) / "messages.txt"
 
+    def _get_messages_file_path(
+        self, conversation_id: str, message_type: str = "direct"
+    ) -> Path:
+        """
+        Get the messages file path for a conversation WITHOUT creating directory.
+
+        Args:
+            conversation_id: Channel number or node pubkey
+            message_type: "direct", "channel", or "broadcast"
+
+        Returns:
+            Path to messages.txt file
+        """
+        if message_type == "channel" or self._is_channel_id(conversation_id):
+            # Channel: data/channels/{number}/messages.txt
+            return self._get_channel_dir_path(conversation_id) / "messages.txt"
+        else:
+            # Node: data/nodes/{pubkey_prefix}/messages.txt
+            return self._get_node_dir_path(conversation_id) / "messages.txt"
+
     def _get_user_messages_file(self, user_id: str) -> Path:
-        """Get the messages file path for a user (node)."""
+        """Get the messages file path for a user (node) and create directory if needed."""
         return self._get_node_dir(user_id) / "messages.txt"
 
+    def _get_user_messages_file_path(self, user_id: str) -> Path:
+        """Get the messages file path for a user (node) WITHOUT creating directory."""
+        return self._get_node_dir_path(user_id) / "messages.txt"
+
     def _get_user_memory_file(self, user_id: str) -> Path:
-        """Get the memory file path for a user (node)."""
+        """Get the memory file path for a user (node) and create directory if needed."""
         return self._get_node_dir(user_id) / "node.json"
+
+    def _get_user_memory_file_path(self, user_id: str) -> Path:
+        """Get the memory file path for a user (node) WITHOUT creating directory."""
+        return self._get_node_dir_path(user_id) / "node.json"

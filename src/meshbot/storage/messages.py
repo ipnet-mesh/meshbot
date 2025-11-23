@@ -73,11 +73,13 @@ class MessageStorage(BaseStorage):
             List of message dicts with keys: role, content, timestamp, sender
         """
         try:
-            # Determine if it's a channel or node
+            # Use path-only version to avoid creating directory
             if self._is_channel_id(conversation_id):
-                messages_file = self._get_channel_dir(conversation_id) / "messages.txt"
+                messages_file = (
+                    self._get_channel_dir_path(conversation_id) / "messages.txt"
+                )
             else:
-                messages_file = self._get_user_messages_file(conversation_id)
+                messages_file = self._get_user_messages_file_path(conversation_id)
 
             if not messages_file.exists():
                 return []
@@ -145,14 +147,14 @@ class MessageStorage(BaseStorage):
 
             # Determine which files to search
             if conversation_id:
-                # Determine if it's a channel or node
+                # Use path-only version to avoid creating directory
                 if self._is_channel_id(conversation_id):
                     files_to_search = [
-                        self._get_channel_dir(conversation_id) / "messages.txt"
+                        self._get_channel_dir_path(conversation_id) / "messages.txt"
                     ]
                 else:
                     files_to_search = [
-                        self._get_node_dir(conversation_id) / "messages.txt"
+                        self._get_node_dir_path(conversation_id) / "messages.txt"
                     ]
             else:
                 # Search all message files (both nodes and channels)
@@ -234,11 +236,13 @@ class MessageStorage(BaseStorage):
             Dict with total_messages, first_seen, last_seen
         """
         try:
-            # Determine if it's a channel or node
+            # Use path-only version to avoid creating directory
             if self._is_channel_id(conversation_id):
-                messages_file = self._get_channel_dir(conversation_id) / "messages.txt"
+                messages_file = (
+                    self._get_channel_dir_path(conversation_id) / "messages.txt"
+                )
             else:
-                messages_file = self._get_user_messages_file(conversation_id)
+                messages_file = self._get_user_messages_file_path(conversation_id)
 
             if not messages_file.exists():
                 return {
