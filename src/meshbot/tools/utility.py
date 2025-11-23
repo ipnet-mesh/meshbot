@@ -5,6 +5,8 @@ from typing import Any
 
 from pydantic_ai import RunContext
 
+from .logging_wrapper import create_logging_tool_decorator
+
 logger = logging.getLogger(__name__)
 
 
@@ -14,8 +16,10 @@ def register_utility_tools(agent: Any) -> None:
     Args:
         agent: The Pydantic AI agent to register tools with
     """
+    # Create logging tool decorator
+    tool = create_logging_tool_decorator(agent)
 
-    @agent.tool
+    @tool()
     async def calculate(ctx: RunContext[Any], expression: str) -> str:
         """Evaluate a mathematical expression safely.
 
@@ -61,7 +65,7 @@ def register_utility_tools(agent: Any) -> None:
             logger.error(f"Calculation error: {e}")
             return f"Error calculating: {str(e)[:50]}"
 
-    @agent.tool
+    @tool()
     async def get_current_time(ctx: RunContext[Any], format: str = "human") -> str:
         """Get current date and time.
 
@@ -86,7 +90,7 @@ def register_utility_tools(agent: Any) -> None:
             logger.error(f"Error getting time: {e}")
             return "Error retrieving current time"
 
-    @agent.tool
+    @tool()
     async def search_history(
         ctx: RunContext[Any],
         user_id: str,
@@ -134,14 +138,13 @@ def register_utility_tools(agent: Any) -> None:
             logger.error(f"Error searching history: {e}")
             return "Error searching conversation history"
 
-    @agent.tool
+    @tool()
     async def get_bot_status(ctx: RunContext[Any]) -> str:
         """Get current bot status and statistics.
 
         Returns:
             Bot status information including uptime, memory stats, and connection status
         """
-        logger.info("📊 TOOL CALL: get_bot_status()")
         try:
             # Get memory statistics
             memory_stats = await ctx.deps.memory.get_statistics()
@@ -161,9 +164,6 @@ def register_utility_tools(agent: Any) -> None:
                 f"Users: {memory_stats.get('total_users', 0)}"
             )
 
-            logger.info(
-                f"📊 TOOL RESULT: get_bot_status -> {online_count}/{len(contacts)} contacts, {memory_stats.get('total_messages', 0)} messages"
-            )
             return status
         except Exception as e:
             logger.error(f"Error getting bot status: {e}")

@@ -5,6 +5,8 @@ from typing import Any
 
 from pydantic_ai import RunContext
 
+from .logging_wrapper import create_logging_tool_decorator
+
 logger = logging.getLogger(__name__)
 
 
@@ -14,11 +16,12 @@ def register_conversation_tools(agent: Any) -> None:
     Args:
         agent: The Pydantic AI agent to register tools with
     """
+    # Create logging tool decorator
+    tool = create_logging_tool_decorator(agent)
 
-    @agent.tool
+    @tool()
     async def get_user_info(ctx: RunContext[Any], user_id: str) -> str:
         """Get information about a user."""
-        logger.info(f"🔧 TOOL CALL: get_user_info(user_id='{user_id}')")
         try:
             memory = await ctx.deps.memory.get_user_memory(user_id)
 
@@ -27,16 +30,14 @@ def register_conversation_tools(agent: Any) -> None:
             info += f"First seen: {memory.get('first_seen', 'Never')}\n"
             info += f"Last seen: {memory.get('last_seen', 'Never')}\n"
 
-            logger.info(f"🔧 TOOL RESULT: get_user_info -> {len(info)} chars")
             return info
         except Exception as e:
             logger.error(f"Error getting user info: {e}")
             return "Error retrieving user information."
 
-    @agent.tool
+    @tool()
     async def status_request(ctx: RunContext[Any], destination: str) -> str:
         """Send a status request to a MeshCore node (similar to ping)."""
-        logger.info(f"🔧 TOOL CALL: status_request(destination='{destination}')")
         try:
             # Use send_statusreq instead of ping (which doesn't exist)
             # This will request status from the destination node
@@ -44,13 +45,12 @@ def register_conversation_tools(agent: Any) -> None:
             result = (
                 f"Status request to {destination}: {'Success' if success else 'Failed'}"
             )
-            logger.info(f"🔧 TOOL RESULT: status_request -> {result}")
             return result
         except Exception as e:
             logger.error(f"Error sending status request: {e}")
             return f"Status request to {destination} failed"
 
-    @agent.tool
+    @tool()
     async def get_conversation_history(
         ctx: RunContext[Any], user_id: str, limit: int = 5
     ) -> str:

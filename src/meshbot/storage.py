@@ -82,7 +82,9 @@ class MeshBotStorage:
         channel_dir.mkdir(parents=True, exist_ok=True)
         return channel_dir
 
-    def _get_messages_file(self, conversation_id: str, message_type: str = "direct") -> Path:
+    def _get_messages_file(
+        self, conversation_id: str, message_type: str = "direct"
+    ) -> Path:
         """
         Get the messages file path for a conversation.
 
@@ -245,9 +247,13 @@ class MeshBotStorage:
             if conversation_id:
                 # Determine if it's a channel or node
                 if self._is_channel_id(conversation_id):
-                    files_to_search = [self._get_channel_dir(conversation_id) / "messages.txt"]
+                    files_to_search = [
+                        self._get_channel_dir(conversation_id) / "messages.txt"
+                    ]
                 else:
-                    files_to_search = [self._get_node_dir(conversation_id) / "messages.txt"]
+                    files_to_search = [
+                        self._get_node_dir(conversation_id) / "messages.txt"
+                    ]
             else:
                 # Search all message files (both nodes and channels)
                 files_to_search = []
@@ -725,7 +731,9 @@ class MeshBotStorage:
                 memory = json.load(f)
 
             return {
-                "pubkey": memory.get("pubkey", pubkey),  # Use stored pubkey, fallback to parameter
+                "pubkey": memory.get(
+                    "pubkey", pubkey
+                ),  # Use stored pubkey, fallback to parameter
                 "name": memory.get("name"),
                 "is_online": memory.get("is_online", False),
                 "first_seen": memory.get("first_seen"),
@@ -778,7 +786,9 @@ class MeshBotStorage:
 
                     nodes.append(
                         {
-                            "pubkey": memory.get("pubkey", pubkey_prefix),  # Use stored full pubkey, fallback to prefix
+                            "pubkey": memory.get(
+                                "pubkey", pubkey_prefix
+                            ),  # Use stored full pubkey, fallback to prefix
                             "name": memory.get("name"),
                             "is_online": memory.get("is_online", False),
                             "first_seen": memory.get("first_seen"),
