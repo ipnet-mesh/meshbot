@@ -91,54 +91,6 @@ def register_utility_tools(agent: Any) -> None:
             return "Error retrieving current time"
 
     @tool()
-    async def search_history(
-        ctx: RunContext[Any],
-        user_id: str,
-        keyword: str,
-        limit: int = 5,
-    ) -> str:
-        """Search conversation history for messages containing a keyword.
-
-        Args:
-            user_id: User/channel ID to search
-            keyword: Keyword to search for (case-insensitive)
-            limit: Maximum number of results to return
-
-        Returns:
-            Matching messages or no results message
-        """
-        try:
-            # Get full history
-            history = await ctx.deps.memory.get_conversation_history(user_id, limit=100)
-
-            if not history:
-                return f"No conversation history with {user_id}"
-
-            # Search for keyword (case-insensitive)
-            keyword_lower = keyword.lower()
-            matches = [
-                msg for msg in history if keyword_lower in msg["content"].lower()
-            ][:limit]
-
-            if not matches:
-                return f"No messages found containing '{keyword}'"
-
-            response = f"Found {len(matches)} message(s) with '{keyword}':\n"
-            for msg in matches:
-                role = "User" if msg["role"] == "user" else "Assistant"
-                content_preview = (
-                    msg["content"][:60] + "..."
-                    if len(msg["content"]) > 60
-                    else msg["content"]
-                )
-                response += f"{role}: {content_preview}\n"
-
-            return response.strip()
-        except Exception as e:
-            logger.error(f"Error searching history: {e}")
-            return "Error searching conversation history"
-
-    @tool()
     async def get_bot_status(ctx: RunContext[Any]) -> str:
         """Get current bot status and statistics.
 

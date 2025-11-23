@@ -111,7 +111,7 @@ pytest tests/test_basic.py -v
 
 2. **AI Agent** (`src/meshbot/agent.py`)
    - Pydantic AI agent with rich tool set
-   - **Utility tools**: calculate, get_current_time, search_history, get_bot_status
+   - **Utility tools**: calculate, get_current_time, get_bot_status
    - **Fun tools**: roll_dice, flip_coin, random_number, magic_8ball
    - **Network/mesh tools**: get_contacts, get_conversation_history
    - **Query tools**: search_adverts, get_node_info, list_nodes (for historical network data)
@@ -324,7 +324,6 @@ The agent currently has the following tools implemented in `src/meshbot/agent.py
 **Utility Tools**:
 - `calculate`: Perform mathematical calculations using Python's eval (safely)
 - `get_current_time`: Return current date and time
-- `search_history`: Search conversation history for keywords
 - `get_bot_status`: Return bot uptime and connection status
 
 **Fun Tools**:
