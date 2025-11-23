@@ -64,10 +64,10 @@ class MeshBotStorage:
         return conversation_id.isdigit()
 
     def _get_node_prefix(self, pubkey: str) -> str:
-        """Get the first 16 characters of a public key for directory naming."""
-        # Sanitize pubkey (remove non-alphanumeric) and take first 16 chars
+        """Get the first 12 characters of a public key for directory naming."""
+        # Sanitize pubkey (remove non-alphanumeric) and take first 12 chars
         safe_key = "".join(c for c in pubkey if c.isalnum())
-        return safe_key[:16]
+        return safe_key[:12]
 
     def _get_node_dir(self, pubkey: str) -> Path:
         """Get the directory path for a node."""
@@ -550,7 +550,7 @@ class MeshBotStorage:
             with open(memory_file, "w", encoding="utf-8") as f:
                 json.dump(memory, f, indent=2)
 
-            logger.debug(f"Updated node name: {pubkey[:16]}... -> {name}")
+            logger.debug(f"Updated node name: {pubkey[:12]}... -> {name}")
         except Exception as e:
             logger.error(f"Error updating node name: {e}")
             raise
@@ -660,7 +660,7 @@ class MeshBotStorage:
             with open(memory_file, "w", encoding="utf-8") as f:
                 json.dump(memory, f, indent=2)
 
-            logger.debug(f"Upserted node: {pubkey[:16]}...")
+            logger.debug(f"Upserted node: {pubkey[:12]}...")
 
         except Exception as e:
             logger.error(f"Error upserting node: {e}")
@@ -839,7 +839,7 @@ class MeshBotStorage:
             )
             await self.update_node_advert_count(node_id, timestamp)
 
-            logger.debug(f"Added advert from {node_id[:16]}...")
+            logger.debug(f"Added advert from {node_id[:12]}...")
 
         except Exception as e:
             logger.error(f"Error adding advert: {e}")
