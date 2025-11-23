@@ -554,11 +554,11 @@ class MeshBotAgent:
         except Exception as e:
             logger.warning(f"Clock sync failed: {e}")
 
-        # Send local advertisement to announce presence (after setting name)
+        # Send flood advertisement to announce presence to all nodes (after setting name)
         try:
-            await self.meshcore.send_local_advert()
+            await self.meshcore.send_flood_advert()
         except Exception as e:
-            logger.warning(f"Local advert failed: {e}")
+            logger.warning(f"Flood advert failed: {e}")
 
         # Get bot's own node name for @ mentions
         try:
