@@ -208,4 +208,5 @@ __marimo__/
 
 # MeshBot specific data files
 data/
+data
 logs/
