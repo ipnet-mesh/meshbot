@@ -91,6 +91,11 @@ class MeshCoreInterface(ABC):
         pass
 
     @abstractmethod
+    def add_message_handler(self, handler: Callable[[MeshCoreMessage], Any]) -> None:
+        """Add a message handler callback."""
+        pass
+
+    @abstractmethod
     async def set_node_name(self, name: str) -> bool:
         """Set the node's advertised name."""
         pass
@@ -317,6 +322,7 @@ class RealMeshCoreInterface(MeshCoreInterface):
                 debug=self.connection_params.get("debug", False),
                 auto_reconnect=self.connection_params.get("auto_reconnect", True),
             )
+            assert self._meshcore is not None
 
             # Connect and start auto message fetching
             logger.info("Connecting to MeshCore...")
@@ -797,17 +803,17 @@ class RealMeshCoreInterface(MeshCoreInterface):
 
                 with concurrent.futures.ThreadPoolExecutor() as executor:
                     future = executor.submit(
-                        asyncio.run, self._storage.get_recent_network_events(limit)
+                        asyncio.run, self._storage.get_recent_network_events(limit)  # type: ignore[arg-type]
                     )
-                    events_data = future.result()
+                    events_data = future.result()  # type: ignore[assignment]
             else:
-                events_data = asyncio.run(
+                events_data = asyncio.run(  # type: ignore[assignment]
                     self._storage.get_recent_network_events(limit)
                 )
 
             # Format events for display
             events = []
-            for event_data in reversed(events_data):  # Reverse to show oldest first
+            for event_data in reversed(events_data):  # type: ignore[call-overload]
                 try:
                     timestamp = event_data["timestamp"]
                     event_info = event_data["details"]
@@ -824,7 +830,7 @@ class RealMeshCoreInterface(MeshCoreInterface):
                         time_ago = f"{int(age_seconds/3600)}h ago"
 
                     events.append(f"[{time_ago}] {event_info}")
-                except:
+                except Exception:
                     continue
 
             return events
