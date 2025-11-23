@@ -6,7 +6,8 @@ This document outlines the development workflow and rules for the MeshBot projec
 
 ```bash
 # Clone and navigate
-cd /home/user/data/dev/meshbot
+git clone https://github.com/ipnet-mesh/meshbot.git
+cd meshbot
 
 # Create and activate virtual environment
 python -m venv .venv
@@ -136,7 +137,7 @@ pytest tests/test_basic.py -v
 ### Dependencies
 
 #### Core Dependencies
-- `pydantic-ai` - AI agent framework
+- `pydantic-ai-slim` - AI agent framework (without temporalio dependency)
 - `pydantic` - Data validation
 - `meshcore` - MeshCore communication library
 - `python-dotenv` - Environment variables
@@ -158,7 +159,7 @@ pytest tests/test_basic.py -v
 ### 1. Setup (First Time)
 ```bash
 # Clone repository
-git clone <repository-url>
+git clone https://github.com/ipnet-mesh/meshbot.git
 cd meshbot
 
 # Create virtual environment

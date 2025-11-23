@@ -28,3 +28,6 @@ CMD ["run", "--meshcore-type", "mock"]
 
 LABEL org.opencontainers.image.source="https://github.com/ipnet-mesh/meshbot"
 LABEL org.opencontainers.image.description="AI agent for MeshCore network communication"
+LABEL org.opencontainers.image.authors="IPNet Mesh <info@ipnt.uk>"
+LABEL org.opencontainers.image.url="https://github.com/ipnet-mesh/meshbot"
+LABEL org.opencontainers.image.licenses="GPL-3.0-or-later"
