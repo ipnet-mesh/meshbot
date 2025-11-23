@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
-from meshbot.memory import ConversationMessage, MemoryManager
+from meshbot.memory import MemoryManager
 from meshbot.meshcore_interface import MeshCoreMessage, MockMeshCoreInterface
 
 
@@ -17,11 +17,8 @@ class TestMemoryManager:
     async def memory_manager(self, tmp_path: Path) -> MemoryManager:
         """Create a memory manager for testing."""
         # Use a test-specific database to avoid conflicts
-        db_path = tmp_path / "test_memori.db"
-        manager = MemoryManager(
-            storage_path=tmp_path / "test_memory.json",
-            database_url=f"sqlite:///{db_path}",
-        )
+        db_path = tmp_path / "test_meshbot.db"
+        manager = MemoryManager(storage_path=db_path, max_lines=1000)
         await manager.load()
         return manager
 
@@ -30,98 +27,107 @@ class TestMemoryManager:
         """Test creating and retrieving user memory."""
         user_id = "test_user_123"
 
-        # Get user memory (should create new one)
+        # Get user memory (should return empty stats for new user)
         memory = await memory_manager.get_user_memory(user_id)
 
-        assert memory.user_id == user_id
-        assert memory.total_messages == 0
-        # conversation_history starts empty
-        assert memory.conversation_history == []
+        assert memory["user_id"] == user_id
+        assert memory["total_messages"] == 0
+        assert memory["first_seen"] is None
+        assert memory["last_seen"] is None
 
     @pytest.mark.asyncio
     async def test_adding_messages(self, memory_manager: MemoryManager) -> None:
-        """Test adding messages to user memory (metadata only)."""
+        """Test adding messages to SQLite database."""
         user_id = "test_user_456"
 
-        # Create a test message
-        message = MeshCoreMessage(
-            sender=user_id,
-            sender_name="TestUser",
+        # Add a test message
+        await memory_manager.add_message(
+            user_id=user_id,
+            role="user",
             content="Hello, bot!",
+            message_type="direct",
             timestamp=1234567890.0,
         )
 
-        # Add message
-        await memory_manager.add_message(message, is_from_user=True)
-
         # Check memory - message count should increment
         memory = await memory_manager.get_user_memory(user_id)
-        assert memory.total_messages == 1
-        assert memory.user_name == "TestUser"
-        # Note: conversation_history is managed by Memori, not stored in metadata
-        assert memory.conversation_history == []
+        assert memory["total_messages"] == 1
+        assert memory["first_seen"] == 1234567890.0
+        assert memory["last_seen"] == 1234567890.0
 
     @pytest.mark.asyncio
     async def test_conversation_history(self, memory_manager: MemoryManager) -> None:
-        """Test conversation history with Memori integration."""
+        """Test conversation history retrieval."""
         user_id = "test_user_789"
 
         # Add multiple messages
         for i in range(5):
-            message = MeshCoreMessage(
-                sender=user_id,
-                sender_name="TestUser",
+            role = "user" if i % 2 == 0 else "assistant"
+            await memory_manager.add_message(
+                user_id=user_id,
+                role=role,
                 content=f"Message {i}",
+                message_type="direct",
                 timestamp=1234567890.0 + i,
             )
-            await memory_manager.add_message(message, is_from_user=i % 2 == 0)
 
         # Check message count
         memory = await memory_manager.get_user_memory(user_id)
-        assert memory.total_messages == 5
+        assert memory["total_messages"] == 5
 
-        # Note: Actual conversation history is managed by Memori
-        # and automatically injected into LLM calls
-        history = await memory_manager.get_conversation_history(user_id)
-        assert isinstance(history, list)  # Returns empty list for compatibility
+        # Get conversation history
+        history = await memory_manager.get_conversation_history(user_id, limit=10)
+        assert len(history) == 5
+        assert history[0]["content"] == "Message 0"
+        assert history[-1]["content"] == "Message 4"
 
     @pytest.mark.asyncio
-    async def test_user_preferences(self, memory_manager: MemoryManager) -> None:
-        """Test user preferences."""
-        user_id = "test_user_prefs"
+    async def test_conversation_context(self, memory_manager: MemoryManager) -> None:
+        """Test getting conversation context for LLM."""
+        user_id = "test_context_user"
 
-        # Set preferences
-        await memory_manager.set_user_preference(user_id, "language", "en")
-        await memory_manager.set_user_preference(user_id, "timezone", "UTC")
-
-        # Get preferences
-        lang = await memory_manager.get_user_preference(user_id, "language")
-        tz = await memory_manager.get_user_preference(user_id, "timezone")
-
-        assert lang == "en"
-        assert tz == "UTC"
-
-        # Test default value
-        missing = await memory_manager.get_user_preference(
-            user_id, "missing_key", default="default_value"
+        # Add some messages
+        await memory_manager.add_message(
+            user_id=user_id,
+            role="user",
+            content="What's the weather?",
+            message_type="direct",
         )
-        assert missing == "default_value"
-
-    @pytest.mark.asyncio
-    async def test_user_context(self, memory_manager: MemoryManager) -> None:
-        """Test user context."""
-        user_id = "test_user_context"
-
-        # Set context
-        await memory_manager.set_user_context(user_id, "project", "meshbot")
-        await memory_manager.set_user_context(user_id, "skill_level", "expert")
+        await memory_manager.add_message(
+            user_id=user_id,
+            role="assistant",
+            content="I don't have weather data.",
+            message_type="direct",
+        )
 
         # Get context
-        project = await memory_manager.get_user_context(user_id, "project")
-        skill = await memory_manager.get_user_context(user_id, "skill_level")
+        context = await memory_manager.get_conversation_context(
+            user_id, "direct", max_messages=10
+        )
+        assert len(context) == 2
+        assert all("role" in msg and "content" in msg for msg in context)
 
-        assert project == "meshbot"
-        assert skill == "expert"
+    @pytest.mark.asyncio
+    async def test_statistics(self, memory_manager: MemoryManager) -> None:
+        """Test getting overall statistics."""
+        # Add messages for multiple users
+        await memory_manager.add_message(
+            user_id="user1", role="user", content="Hello", message_type="direct"
+        )
+        await memory_manager.add_message(
+            user_id="user2", role="user", content="Hi", message_type="direct"
+        )
+        await memory_manager.add_message(
+            user_id="channel_0",
+            role="user",
+            content="Channel msg",
+            message_type="channel",
+        )
+
+        # Get stats
+        stats = await memory_manager.get_statistics()
+        assert stats["total_messages"] >= 3
+        assert stats["total_users"] >= 2
 
 
 class TestMockMeshCore:
@@ -186,11 +192,8 @@ class TestIntegration:
     async def test_message_flow(self, tmp_path: Path) -> None:
         """Test complete message flow."""
         # Setup components
-        db_path = tmp_path / "integration_memori.db"
-        memory = MemoryManager(
-            storage_path=tmp_path / "memory.json",
-            database_url=f"sqlite:///{db_path}",
-        )
+        db_path = tmp_path / "integration_meshbot.db"
+        memory = MemoryManager(storage_path=db_path, max_lines=1000)
         await memory.load()
 
         meshcore = MockMeshCoreInterface()
@@ -205,12 +208,18 @@ class TestIntegration:
         )
 
         # Add to memory
-        await memory.add_message(message, is_from_user=True)
+        await memory.add_message(
+            user_id=message.sender,
+            role="user",
+            content=message.content,
+            message_type="direct",
+            timestamp=message.timestamp,
+        )
 
         # Verify
         user_memory = await memory.get_user_memory("test_user")
-        assert user_memory.total_messages == 1
-        assert user_memory.user_name == "TestUser"
+        assert user_memory["total_messages"] == 1
+        assert user_memory["first_seen"] is not None
 
         # Cleanup
         await meshcore.disconnect()

@@ -66,7 +66,9 @@ class MeshBotAgent:
         self.max_message_length = max_message_length
         self.node_name = node_name
         self.meshcore_kwargs = meshcore_kwargs
-        self._mention_name: Optional[str] = None  # Will be set to @nodename after initialization
+        self._mention_name: Optional[str] = (
+            None  # Will be set to @nodename after initialization
+        )
 
         # Initialize components
         self.meshcore: Optional[MeshCoreInterface] = None
@@ -99,11 +101,10 @@ class MeshBotAgent:
             connection_type, **self.meshcore_kwargs
         )
 
-        # Initialize memory manager with file-based chat logs
+        # Initialize memory manager with SQLite storage
         self.memory = MemoryManager(
-            storage_path=self.memory_path
-            or Path("logs"),  # Not used, kept for compatibility
-            max_lines=1000,  # Keep last 1000 lines per log file
+            storage_path=self.memory_path or Path("data"),  # SQLite database directory
+            max_lines=1000,  # Max messages in conversation context
         )
         await self.memory.load()
 
@@ -514,6 +515,132 @@ class MeshBotAgent:
                 logger.error(f"Error with magic 8-ball: {e}")
                 return "The magic 8-ball is cloudy"
 
+        # Query Tools for Historical Data
+        @self.agent.tool
+        async def search_network_events(
+            ctx: RunContext[MeshBotDependencies],
+            event_type: Optional[str] = None,
+            node_id: Optional[str] = None,
+            hours_ago: Optional[int] = None,
+            limit: int = 20,
+        ) -> str:
+            """Search historical network events with filters.
+
+            Args:
+                event_type: Filter by event type (ADVERT, NEW_CONTACT, PATH_UPDATE, etc.)
+                node_id: Filter by node ID (partial match supported)
+                hours_ago: Only show events from last N hours
+                limit: Maximum number of results (default 20, max 50)
+
+            Returns:
+                Formatted list of matching network events
+            """
+            try:
+                import time
+
+                # Calculate timestamp filter if hours_ago is specified
+                since = None
+                if hours_ago is not None:
+                    since = time.time() - (hours_ago * 3600)
+
+                # Limit to max 50 results
+                limit = min(limit, 50)
+
+                # Query storage
+                events = await ctx.deps.memory.storage.search_network_events(
+                    event_type=event_type,
+                    node_id=node_id,
+                    since=since,
+                    limit=limit,
+                )
+
+                if not events:
+                    filters = []
+                    if event_type:
+                        filters.append(f"type={event_type}")
+                    if node_id:
+                        filters.append(f"node={node_id}")
+                    if hours_ago:
+                        filters.append(f"last {hours_ago}h")
+                    filter_str = " with " + ", ".join(filters) if filters else ""
+                    return f"No network events found{filter_str}"
+
+                # Format results
+                from datetime import datetime
+
+                result = f"Found {len(events)} network event(s):\n"
+                for event in events:
+                    timestamp = datetime.fromtimestamp(event["timestamp"])
+                    time_str = timestamp.strftime("%Y-%m-%d %H:%M:%S")
+                    details = event["details"] or event["event_type"]
+                    result += f"[{time_str}] {details}\n"
+
+                return result.strip()
+
+            except Exception as e:
+                logger.error(f"Error searching network events: {e}")
+                return "Error searching network events"
+
+        @self.agent.tool
+        async def search_all_messages(
+            ctx: RunContext[MeshBotDependencies],
+            keyword: str,
+            hours_ago: Optional[int] = None,
+            limit: int = 20,
+        ) -> str:
+            """Search messages across all conversations.
+
+            Args:
+                keyword: Keyword to search for (case-insensitive)
+                hours_ago: Only show messages from last N hours
+                limit: Maximum number of results (default 20, max 50)
+
+            Returns:
+                Formatted list of matching messages
+            """
+            try:
+                import time
+
+                # Calculate timestamp filter if hours_ago is specified
+                since = None
+                if hours_ago is not None:
+                    since = time.time() - (hours_ago * 3600)
+
+                # Limit to max 50 results
+                limit = min(limit, 50)
+
+                # Query storage
+                messages = await ctx.deps.memory.storage.search_messages(
+                    keyword=keyword,
+                    since=since,
+                    limit=limit,
+                )
+
+                if not messages:
+                    time_filter = f" in last {hours_ago}h" if hours_ago else ""
+                    return f"No messages found containing '{keyword}'{time_filter}"
+
+                # Format results
+                from datetime import datetime
+
+                result = f"Found {len(messages)} message(s) with '{keyword}':\n"
+                for msg in messages:
+                    timestamp = datetime.fromtimestamp(msg["timestamp"])
+                    time_str = timestamp.strftime("%Y-%m-%d %H:%M")
+                    role = "User" if msg["role"] == "user" else "Bot"
+                    content_preview = (
+                        msg["content"][:60] + "..."
+                        if len(msg["content"]) > 60
+                        else msg["content"]
+                    )
+                    result += f"[{time_str}] {role}: {content_preview}\n"
+
+                return result.strip()
+
+            except Exception as e:
+                logger.error(f"Error searching messages: {e}")
+                return "Error searching messages"
+
     async def start(self) -> None:
         """Start the agent."""
         if self._running:
@@ -575,9 +702,7 @@ class MeshBotAgent:
                 )
         except Exception as e:
             logger.warning(f"Could not retrieve node name: {e}")
-            logger.warning(
-                "Bot will only respond to DMs, not channel mentions"
-            )
+            logger.warning("Bot will only respond to DMs, not channel mentions")
 
         self._running = True
         logger.info("MeshBot agent started successfully")
@@ -707,7 +832,7 @@ class MeshBotAgent:
 
             # Check for bracketed format: @[nodename]
             # Extract node name without @ prefix
-            if mention_lower.startswith('@'):
+            if mention_lower.startswith("@"):
                 node_name = mention_lower[1:]  # Remove @ prefix
                 bracketed_format = f"@[{node_name}]"
                 if bracketed_format in content_lower:
@@ -802,7 +927,7 @@ class MeshBotAgent:
             from pydantic_ai import UsageLimits
 
             usage_limits = UsageLimits(
-                request_limit=5,  # Max 5 LLM requests per message (includes tool calls)
+                request_limit=20,  # Max 20 LLM requests per message (includes tool calls)
             )
             result = await self.agent.run(prompt, deps=deps, usage_limits=usage_limits)
 

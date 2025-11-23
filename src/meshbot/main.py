@@ -15,9 +15,9 @@ from .config import MeshBotConfig, load_config
 def setup_logging(level: str = "INFO", log_file: Optional[Path] = None) -> None:
     """Setup logging configuration."""
     # Add custom TRACE level if not already defined
-    if not hasattr(logging, 'TRACE'):
+    if not hasattr(logging, "TRACE"):
         logging.TRACE = 5
-        logging.addLevelName(logging.TRACE, 'TRACE')
+        logging.addLevelName(logging.TRACE, "TRACE")
 
     log_level = getattr(logging, level.upper(), logging.INFO)
 
@@ -26,16 +26,14 @@ def setup_logging(level: str = "INFO", log_file: Optional[Path] = None) -> None:
 
     # Console handler with simple format
     console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setFormatter(
-        logging.Formatter('%(levelname)s: %(message)s')
-    )
+    console_handler.setFormatter(logging.Formatter("%(levelname)s: %(message)s"))
     handlers.append(console_handler)
 
     # File handler if configured
     if log_file:
         file_handler = logging.FileHandler(log_file)
         file_handler.setFormatter(
-            logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+            logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
         )
         handlers.append(file_handler)
 
@@ -69,9 +67,7 @@ def cli() -> None:
 @click.option("--meshcore-host", help="TCP host for MeshCore connection")
 @click.option("--meshcore-address", help="BLE address for MeshCore connection")
 @click.option("--meshcore-baudrate", type=int, help="Serial baudrate (default: 115200)")
-@click.option(
-    "--meshcore-debug", is_flag=True, help="Enable MeshCore debug logging"
-)
+@click.option("--meshcore-debug", is_flag=True, help="Enable MeshCore debug logging")
 @click.option(
     "--meshcore-auto-reconnect/--no-meshcore-auto-reconnect",
     default=None,
@@ -87,11 +83,12 @@ def cli() -> None:
     help="Path to custom prompt file",
 )
 @click.option(
-    "-v", "--verbose", count=True, help="Increase verbosity (-v for DEBUG, -vv for TRACE)"
+    "-v",
+    "--verbose",
+    count=True,
+    help="Increase verbosity (-v for DEBUG, -vv for TRACE)",
 )
-@click.option(
-    "--log-file", type=click.Path(path_type=Path), help="Log file path"
-)
+@click.option("--log-file", type=click.Path(path_type=Path), help="Log file path")
 def run(
     model: Optional[str],
     listen_channel: Optional[str],
@@ -256,9 +253,7 @@ async def run_agent(agent: MeshBotAgent) -> None:
 @click.option("--meshcore-host", help="TCP host for MeshCore connection")
 @click.option("--meshcore-address", help="BLE address for MeshCore connection")
 @click.option("--meshcore-baudrate", type=int, help="Serial baudrate (default: 115200)")
-@click.option(
-    "--meshcore-debug", is_flag=True, help="Enable MeshCore debug logging"
-)
+@click.option("--meshcore-debug", is_flag=True, help="Enable MeshCore debug logging")
 @click.option(
     "--meshcore-auto-reconnect/--no-meshcore-auto-reconnect",
     default=None,
@@ -375,6 +370,7 @@ def test(
     async def run_test():
         """Run the test message."""
         import os
+
         from .meshcore_interface import ConnectionType, MeshCoreMessage
 
         # Check if API key is configured
@@ -430,7 +426,7 @@ def test(
             try:
                 success = await asyncio.wait_for(
                     agent._handle_message(simulated_message, raise_errors=True),
-                    timeout=30.0  # 30 second timeout
+                    timeout=30.0,  # 30 second timeout
                 )
             except asyncio.TimeoutError:
                 logger.error("Message processing timed out after 30 seconds")
@@ -466,6 +462,132 @@ def test(
         sys.exit(130)  # Standard exit code for Ctrl+C
     except Exception as e:
         logger.error(f"Error running test: {e}")
+        sys.exit(1)
+
+
+@cli.command()
+@click.option(
+    "--db-path",
+    type=click.Path(exists=True, path_type=Path),
+    default=Path("data/meshbot.db"),
+    help="Path to SQLite database file (default: data/meshbot.db)",
+)
+@click.option(
+    "--table",
+    type=click.Choice(["all", "messages", "network_events", "node_names"]),
+    default="all",
+    help="Which table(s) to dump (default: all)",
+)
+@click.option(
+    "--limit",
+    type=int,
+    default=100,
+    help="Maximum rows to display per table (default: 100)",
+)
+def dump(db_path: Path, table: str, limit: int) -> None:
+    """Dump SQLite database contents in human-readable text format for debugging."""
+    import sqlite3
+    from datetime import datetime
+
+    try:
+        # Connect to database
+        conn = sqlite3.connect(str(db_path))
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        click.echo(f"\n=== MeshBot Database Dump: {db_path} ===\n")
+
+        # Determine which tables to dump
+        tables_to_dump = []
+        if table == "all":
+            tables_to_dump = ["messages", "network_events", "node_names"]
+        else:
+            tables_to_dump = [table]
+
+        # Dump each table
+        for table_name in tables_to_dump:
+            click.echo(f"\n--- {table_name.upper()} ---")
+
+            # Get row count
+            cursor.execute(f"SELECT COUNT(*) as count FROM {table_name}")
+            total_count = cursor.fetchone()["count"]
+            click.echo(f"Total rows: {total_count}")
+
+            if total_count == 0:
+                click.echo("(empty)\n")
+                continue
+
+            # Fetch rows (node_names doesn't have id column, uses pubkey as PK)
+            if table_name == "node_names":
+                cursor.execute(
+                    f"SELECT * FROM {table_name} ORDER BY timestamp DESC LIMIT {limit}"
+                )
+            else:
+                cursor.execute(
+                    f"SELECT * FROM {table_name} ORDER BY id DESC LIMIT {limit}"
+                )
+            rows = cursor.fetchall()
+
+            if table_name == "messages":
+                click.echo("\nFormat: [TIMESTAMP] CONV_ID (TYPE) ROLE: CONTENT")
+                click.echo("-" * 80)
+                for row in rows:
+                    ts = datetime.fromtimestamp(row["timestamp"]).strftime(
+                        "%Y-%m-%d %H:%M:%S"
+                    )
+                    conv_id = (
+                        row["conversation_id"][:16] + "..."
+                        if len(row["conversation_id"]) > 16
+                        else row["conversation_id"]
+                    )
+                    msg_type = row["message_type"][:3].upper()  # DM/CHA
+                    role = row["role"]
+                    content = (
+                        row["content"][:60] + "..."
+                        if len(row["content"]) > 60
+                        else row["content"]
+                    )
+                    click.echo(f"[{ts}] {conv_id} ({msg_type}) {role}: {content}")
+
+            elif table_name == "network_events":
+                click.echo("\nFormat: [TIMESTAMP] TYPE: DETAILS")
+                click.echo("-" * 80)
+                for row in rows:
+                    ts = datetime.fromtimestamp(row["timestamp"]).strftime(
+                        "%Y-%m-%d %H:%M:%S"
+                    )
+                    event_type = row["event_type"]
+                    details = row["details"] or ""
+                    click.echo(f"[{ts}] {event_type}: {details}")
+
+            elif table_name == "node_names":
+                click.echo("\nFormat: PUBKEY -> NAME (UPDATED)")
+                click.echo("-" * 80)
+                for row in rows:
+                    pubkey = (
+                        row["pubkey"][:16] + "..."
+                        if len(row["pubkey"]) > 16
+                        else row["pubkey"]
+                    )
+                    name = row["name"]
+                    ts = datetime.fromtimestamp(row["timestamp"]).strftime(
+                        "%Y-%m-%d %H:%M:%S"
+                    )
+                    click.echo(f"{pubkey} -> {name} (updated: {ts})")
+
+            if total_count > limit:
+                click.echo(f"\n(Showing latest {limit} of {total_count} rows)")
+
+            click.echo()
+
+        conn.close()
+        click.echo("=== End of dump ===\n")
+
+    except sqlite3.Error as e:
+        click.echo(f"Error reading database: {e}", err=True)
+        sys.exit(1)
+    except Exception as e:
+        click.echo(f"Error: {e}", err=True)
         sys.exit(1)
 
 
