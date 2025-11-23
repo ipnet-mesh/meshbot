@@ -210,4 +210,7 @@ __marimo__/
 # Ignore data directory except for system_prompt.txt
 data/*
 !data/system_prompt.txt
+# Ignore node and channel data directories
+data/nodes/
+data/channels/
 logs/

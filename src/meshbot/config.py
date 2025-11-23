@@ -73,10 +73,10 @@ class AIConfig:
 
 @dataclass
 class MemoryConfig:
-    """Configuration for memory management."""
+    """Configuration for data storage."""
 
     storage_path: Path = field(
-        default_factory=lambda: Path(os.getenv("MEMORY_PATH", "data"))
+        default_factory=lambda: Path(os.getenv("DATA_DIR", "./data"))
     )
 
 

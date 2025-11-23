@@ -48,7 +48,7 @@ class MeshBotAgent:
     def __init__(
         self,
         model: str = "openai:gpt-4o-mini",
-        memory_path: Optional[Path] = None,
+        data_dir: Optional[Path] = None,
         meshcore_connection_type: str = "mock",
         listen_channel: str = "0",
         custom_prompt: Optional[str] = None,
@@ -58,7 +58,7 @@ class MeshBotAgent:
         **meshcore_kwargs,
     ):
         self.model = model
-        self.memory_path = memory_path
+        self.data_dir = data_dir
         self.meshcore_connection_type = meshcore_connection_type
         self.listen_channel = listen_channel
         self.custom_prompt = custom_prompt
@@ -124,13 +124,13 @@ class MeshBotAgent:
 
         # Initialize memory manager with file-based storage
         self._memory = MemoryManager(
-            storage_path=self.memory_path or Path("data"),  # Data directory
+            storage_path=self.data_dir or Path("data"),  # Data directory
             max_lines=1000,  # Max messages in conversation context
         )
         await self.memory.load()
 
         # Load system prompt from file
-        data_dir = self.memory_path or Path("data")
+        data_dir = self.data_dir or Path("data")
         system_prompt_file = data_dir / "system_prompt.txt"
 
         # Create default system prompt if it doesn't exist

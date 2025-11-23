@@ -75,7 +75,7 @@ def cli() -> None:
 )
 @click.option("--meshcore-timeout", type=int, help="MeshCore timeout in seconds")
 @click.option(
-    "--memory-path", type=click.Path(path_type=Path), help="Memory storage file path"
+    "--data-dir", type=click.Path(path_type=Path), help="Data directory path"
 )
 @click.option(
     "--custom-prompt",
@@ -102,7 +102,7 @@ def run(
     meshcore_debug: bool,
     meshcore_auto_reconnect: Optional[bool],
     meshcore_timeout: Optional[int],
-    memory_path: Optional[Path],
+    data_dir: Optional[Path],
     custom_prompt: Optional[Path],
     verbose: int,
     log_file: Optional[Path],
@@ -156,9 +156,9 @@ def run(
         if meshcore_timeout:
             app_config.meshcore.timeout = meshcore_timeout
 
-        # Memory configuration
-        if memory_path:
-            app_config.memory.storage_path = memory_path
+        # Data directory configuration
+        if data_dir:
+            app_config.memory.storage_path = data_dir
 
     except Exception as e:
         logger.error(f"Error loading configuration: {e}")
@@ -177,7 +177,7 @@ def run(
     # Create and run agent
     agent = MeshBotAgent(
         model=app_config.ai.model,
-        memory_path=app_config.memory.storage_path,
+        data_dir=app_config.memory.storage_path,
         meshcore_connection_type=app_config.meshcore.connection_type,
         listen_channel=app_config.ai.listen_channel,
         max_message_length=app_config.ai.max_message_length,
@@ -261,7 +261,7 @@ async def run_agent(agent: MeshBotAgent) -> None:
 )
 @click.option("--meshcore-timeout", type=int, help="MeshCore timeout in seconds")
 @click.option(
-    "--memory-path", type=click.Path(path_type=Path), help="Memory storage file path"
+    "--data-dir", type=click.Path(path_type=Path), help="Data directory path"
 )
 @click.option(
     "--custom-prompt",
@@ -289,7 +289,7 @@ def test(
     meshcore_debug: bool,
     meshcore_auto_reconnect: Optional[bool],
     meshcore_timeout: Optional[int],
-    memory_path: Optional[Path],
+    data_dir: Optional[Path],
     custom_prompt: Optional[Path],
     verbose: int,
 ) -> None:
@@ -341,9 +341,9 @@ def test(
         if meshcore_timeout:
             app_config.meshcore.timeout = meshcore_timeout
 
-        # Memory configuration
-        if memory_path:
-            app_config.memory.storage_path = memory_path
+        # Data directory configuration
+        if data_dir:
+            app_config.memory.storage_path = data_dir
 
         # Logging configuration
         app_config.logging.level = level
@@ -386,7 +386,7 @@ def test(
         # Create agent
         agent = MeshBotAgent(
             model=app_config.ai.model,
-            memory_path=app_config.memory.storage_path,
+            data_dir=app_config.memory.storage_path,
             meshcore_connection_type=app_config.meshcore.connection_type,
             listen_channel=app_config.ai.listen_channel,
             max_message_length=app_config.ai.max_message_length,
