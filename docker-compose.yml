@@ -1,14 +1,12 @@
 services:
-  meshcore-mcp:
+  meshbot:
     # Use public image (recommended)
-    image: ghcr.io/ipnet-mesh/meshcore-mcp:main
+    image: ghcr.io/ipnet-mesh/meshbot:main
 
     # Or build locally (uncomment to build from source)
     # build: .
 
-    container_name: meshcore-mcp
-    ports:
-      - "8000:8000"
+    container_name: meshbot
     restart: unless-stopped
 
     # Uncomment to mount serial devices
@@ -17,11 +15,19 @@ services:
 
     # Optional: Override default command with arguments
     # Examples:
-    # - Auto-connect with clock sync (recommended):
-    # command: ["--serial-port", "/dev/ttyUSB0", "--sync-clock-on-startup"]
-    # - Custom port and debug:
-    # command: ["--host", "0.0.0.0", "--port", "8000", "--serial-port", "/dev/ttyUSB0", "--baud-rate", "115200", "--debug"]
+    # - Run with serial connection:
+    # command: ["run", "--meshcore-type", "serial", "--meshcore-port", "/dev/ttyUSB0"]
+    # - Run with custom node name and serial connection:
+    # command: ["run", "--node-name", "MyBot", "--meshcore-type", "serial", "--meshcore-port", "/dev/ttyUSB0", "--meshcore-baudrate", "115200"]
+    # - Run with verbose logging:
+    # command: ["run", "-vv", "--meshcore-type", "serial", "--meshcore-port", "/dev/ttyUSB0"]
 
-    # Optional: Set environment variables
+    # Optional: Set environment variables (alternative to command-line arguments)
     # environment:
-    #   - TZ=UTC
+    #   - LLM_MODEL=openai:gpt-4o-mini
+    #   - LLM_API_KEY=your_api_key_here
+    #   - MESHCORE_NODE_NAME=MeshBot
+    #   - MESHCORE_CONNECTION_TYPE=serial
+    #   - MESHCORE_PORT=/dev/ttyUSB0
+    #   - ACTIVATION_PHRASE=@bot
+    #   - LOG_LEVEL=INFO
