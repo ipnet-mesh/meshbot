@@ -113,7 +113,7 @@ pytest tests/test_basic.py -v
    - Pydantic AI agent with rich tool set
    - **Utility tools**: calculate, get_current_time, search_history, get_bot_status
    - **Fun tools**: roll_dice, flip_coin, random_number, magic_8ball
-   - **Network/mesh tools**: status_request, get_contacts, get_user_info, get_conversation_history
+   - **Network/mesh tools**: get_contacts, get_conversation_history
    - **Query tools**: search_messages (for historical searches)
    - Dependency injection system
    - Structured responses
@@ -334,9 +334,7 @@ The agent currently has the following tools implemented in `src/meshbot/agent.py
 - `magic_8ball`: Ask the magic 8-ball for wisdom
 
 **Network/Mesh Tools**:
-- `status_request`: Send status request to a node (ping equivalent)
 - `get_contacts`: List all MeshCore contacts with names
-- `get_user_info`: Get user statistics from chat logs
 - `get_conversation_history`: Retrieve recent messages with a user
 
 **Query Tools** (Historical Data):

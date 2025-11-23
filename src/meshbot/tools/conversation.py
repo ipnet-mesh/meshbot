@@ -20,37 +20,6 @@ def register_conversation_tools(agent: Any) -> None:
     tool = create_logging_tool_decorator(agent)
 
     @tool()
-    async def get_user_info(ctx: RunContext[Any], user_id: str) -> str:
-        """Get information about a user."""
-        try:
-            memory = await ctx.deps.memory.get_user_memory(user_id)
-
-            info = f"User: {memory.get('user_name') or user_id}\n"
-            info += f"Total messages: {memory.get('total_messages', 0)}\n"
-            info += f"First seen: {memory.get('first_seen', 'Never')}\n"
-            info += f"Last seen: {memory.get('last_seen', 'Never')}\n"
-
-            return info
-        except Exception as e:
-            logger.error(f"Error getting user info: {e}")
-            return "Error retrieving user information."
-
-    @tool()
-    async def status_request(ctx: RunContext[Any], destination: str) -> str:
-        """Send a status request to a MeshCore node (similar to ping)."""
-        try:
-            # Use send_statusreq instead of ping (which doesn't exist)
-            # This will request status from the destination node
-            success = await ctx.deps.meshcore.ping_node(destination)
-            result = (
-                f"Status request to {destination}: {'Success' if success else 'Failed'}"
-            )
-            return result
-        except Exception as e:
-            logger.error(f"Error sending status request: {e}")
-            return f"Status request to {destination} failed"
-
-    @tool()
     async def get_channel_messages(
         ctx: RunContext[Any], channel: str = "0", limit: int = 5
     ) -> str:

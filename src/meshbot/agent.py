@@ -636,9 +636,9 @@ class MeshBotAgent:
     ) -> None:
         """Handle additional actions from the agent."""
         try:
-            if action == "ping" and action_data and "destination" in action_data:
-                await self.meshcore.ping_node(action_data["destination"])
-            # Add more action handlers as needed
+            # Action handling infrastructure reserved for future use
+            # Add action handlers as needed
+            pass
         except Exception as e:
             logger.error(f"Error handling action {action}: {e}")
 
