@@ -902,18 +902,9 @@ class MeshBotAgent:
                     role_name = "User" if msg["role"] == "user" else "Assistant"
                     prompt += f"{role_name}: {msg['content']}\n"
                 prompt += f"\nCurrent message: {message.content}\n"
-
-                # Add network events at the end (less prominent) and only if recent
-                network_events = self.meshcore.get_recent_network_events(limit=3)
-                if network_events:
-                    prompt += "\n(Background: Recent network activity: "
-                    event_summary = ", ".join([e.split("] ")[1] if "] " in e else e for e in network_events])
-                    prompt += f"{event_summary})\n"
-
                 prompt += "\nAssistant:"
             else:
                 # For first message, just use the message content
-                # Don't include network events for first message to avoid confusion
                 prompt = message.content
 
             # Run agent with conversation context
