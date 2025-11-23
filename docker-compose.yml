@@ -16,11 +16,11 @@ services:
     # Optional: Override default command with arguments
     # Examples:
     # - Run with serial connection:
-    # command: ["run", "--meshcore-type", "serial", "--meshcore-port", "/dev/ttyUSB0"]
+    # command: ["run", "--meshcore-connection-type", "serial", "--meshcore-port", "/dev/ttyUSB0"]
     # - Run with custom node name and serial connection:
-    # command: ["run", "--node-name", "MyBot", "--meshcore-type", "serial", "--meshcore-port", "/dev/ttyUSB0", "--meshcore-baudrate", "115200"]
+    # command: ["run", "--meshcore-node-name", "MyBot", "--meshcore-connection-type", "serial", "--meshcore-port", "/dev/ttyUSB0", "--meshcore-baudrate", "115200"]
     # - Run with verbose logging:
-    # command: ["run", "-vv", "--meshcore-type", "serial", "--meshcore-port", "/dev/ttyUSB0"]
+    # command: ["run", "-vv", "--meshcore-connection-type", "serial", "--meshcore-port", "/dev/ttyUSB0"]
 
     # Optional: Set environment variables (alternative to command-line arguments)
     # environment:

@@ -221,19 +221,19 @@ pytest tests/ -k "integration" -v
 ### 4. Local Testing
 ```bash
 # Test CLI with mock connection
-meshbot test user1 "hello" --meshcore-type mock
+meshbot test user1 "hello" --meshcore-connection-type mock
 
 # Test with custom prompt file
-meshbot test user1 "hello" --custom-prompt my_prompt.txt --meshcore-type mock
+meshbot test user1 "hello" --custom-prompt my_prompt.txt --meshcore-connection-type mock
 
 # Test with custom node name
-meshbot test user1 "hello" --node-name TestBot --meshcore-type mock
+meshbot test user1 "hello" --meshcore-node-name TestBot --meshcore-connection-type mock
 
 # Run with verbose logging
-meshbot run -vv --meshcore-type mock
+meshbot run -vv --meshcore-connection-type mock
 
 # Run with all options via command-line
-meshbot run --node-name MyBot --meshcore-type serial --meshcore-port /dev/ttyUSB0
+meshbot run --meshcore-node-name MyBot --meshcore-connection-type serial --meshcore-port /dev/ttyUSB0
 
 # Run examples
 python examples/basic_usage.py

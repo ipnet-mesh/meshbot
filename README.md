@@ -105,13 +105,13 @@ pip install -e ".[dev]"
 
 ```bash
 # Run with mock connection (for testing)
-meshbot test --meshcore-type mock
+meshbot test --meshcore-connection-type mock
 
 # Run with serial connection
-meshbot --meshcore-type serial --meshcore-port /dev/ttyUSB0
+meshbot --meshcore-connection-type serial --meshcore-port /dev/ttyUSB0
 
 # Run with custom prompt file
-meshbot --custom-prompt my_prompt.txt --meshcore-type mock
+meshbot --custom-prompt my_prompt.txt --meshcore-connection-type mock
 ```
 
 ### Environment Variables
@@ -153,7 +153,7 @@ Run with the custom prompt:
 
 ```bash
 # Via command line
-meshbot --custom-prompt my_prompt.txt --meshcore-type mock
+meshbot --custom-prompt my_prompt.txt --meshcore-connection-type mock
 
 # Via environment variable
 export CUSTOM_PROMPT_FILE=my_prompt.txt
@@ -192,7 +192,7 @@ meshbot
 
 4. **Configuration** (`config.py`)
    - Environment-based configuration
-   - JSON file support
+   - Command-line argument overrides
    - Validation
 
 ### Message Handling
@@ -236,46 +236,11 @@ Sent as:
 
 ```bash
 # Interactive testing with mock MeshCore
-meshbot test --meshcore-type mock
+meshbot test --meshcore-connection-type mock
 
 # The test command provides an interactive prompt:
 # Enter messages to send (or 'quit' to exit)
 # > Hello!
-```
-
-### Configuration File
-
-Create `config.json`:
-
-```json
-{
-  "meshcore": {
-    "connection_type": "serial",
-    "port": "/dev/ttyUSB0",
-    "baudrate": 115200,
-    "debug": false,
-    "auto_reconnect": true
-  },
-  "ai": {
-    "model": "openai:gpt-4o-mini",
-    "base_url": null,
-    "max_tokens": 500,
-    "temperature": 0.7,
-    "listen_channel": "0",
-    "max_message_length": 120
-  },
-  "memory": {
-    "storage_path": "logs"
-  },
-  "logging": {
-    "level": "INFO"
-  }
-}
-```
-
-Run with config:
-```bash
-meshbot --config config.json
 ```
 
 ### Programmatic Usage
@@ -519,13 +484,13 @@ For production use with real MeshCore hardware without Docker:
 
 ```bash
 # Serial connection
-meshbot --meshcore-type serial --meshcore-port /dev/ttyUSB0
+meshbot --meshcore-connection-type serial --meshcore-port /dev/ttyUSB0
 
 # TCP connection
-meshbot --meshcore-type tcp --meshcore-host 192.168.1.100
+meshbot --meshcore-connection-type tcp --meshcore-host 192.168.1.100
 
 # BLE connection
-meshbot --meshcore-type ble --meshcore-address XX:XX:XX:XX:XX:XX
+meshbot --meshcore-connection-type ble --meshcore-address XX:XX:XX:XX:XX:XX
 ```
 
 ### Environment Setup
@@ -555,10 +520,10 @@ export LOG_LEVEL=INFO
 
 ```bash
 # Enable verbose logging
-meshbot -vv --meshcore-type mock
+meshbot -vv --meshcore-connection-type mock
 
 # Test with specific prompt
-meshbot test --custom-prompt debug_prompt.txt -vv
+meshbot test --custom-prompt debug_prompt.txt -vv --meshcore-connection-type mock
 ```
 
 ### Viewing Logs
