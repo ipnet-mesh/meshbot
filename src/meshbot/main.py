@@ -9,20 +9,20 @@ from typing import Optional
 import click
 
 from .agent import MeshBotAgent
-from .config import MeshBotConfig, load_config
+from .config import load_config
 
 
 def setup_logging(level: str = "INFO", log_file: Optional[Path] = None) -> None:
     """Setup logging configuration."""
     # Add custom TRACE level if not already defined
     if not hasattr(logging, "TRACE"):
-        logging.TRACE = 5
-        logging.addLevelName(logging.TRACE, "TRACE")
+        logging.TRACE = 5  # type: ignore[attr-defined]
+        logging.addLevelName(logging.TRACE, "TRACE")  # type: ignore[attr-defined]
 
     log_level = getattr(logging, level.upper(), logging.INFO)
 
     # Configure basic logging
-    handlers = []
+    handlers: list[logging.Handler] = []
 
     # Console handler with simple format
     console_handler = logging.StreamHandler(sys.stdout)
@@ -165,11 +165,11 @@ def run(
         sys.exit(1)
 
     # Load custom prompt if provided
-    custom_prompt = None
+    custom_prompt_content: Optional[str] = None
     if app_config.ai.custom_prompt_file and app_config.ai.custom_prompt_file.exists():
         try:
             with open(app_config.ai.custom_prompt_file, "r", encoding="utf-8") as f:
-                custom_prompt = f.read().strip()
+                custom_prompt_content = f.read().strip()
             logger.info(f"Loaded custom prompt from {app_config.ai.custom_prompt_file}")
         except Exception as e:
             logger.warning(f"Failed to load custom prompt: {e}")
@@ -181,7 +181,7 @@ def run(
         meshcore_connection_type=app_config.meshcore.connection_type,
         listen_channel=app_config.ai.listen_channel,
         max_message_length=app_config.ai.max_message_length,
-        custom_prompt=custom_prompt,
+        custom_prompt=custom_prompt_content,
         base_url=app_config.ai.base_url,
         node_name=app_config.meshcore.node_name,
         port=app_config.meshcore.port,
@@ -357,11 +357,11 @@ def test(
     logger = logging.getLogger(__name__)
 
     # Load custom prompt if provided
-    custom_prompt = None
+    custom_prompt_content: Optional[str] = None
     if app_config.ai.custom_prompt_file and app_config.ai.custom_prompt_file.exists():
         try:
             with open(app_config.ai.custom_prompt_file, "r", encoding="utf-8") as f:
-                custom_prompt = f.read().strip()
+                custom_prompt_content = f.read().strip()
             logger.info(f"Loaded custom prompt from {app_config.ai.custom_prompt_file}")
         except Exception as e:
             logger.warning(f"Failed to load custom prompt: {e}")
@@ -371,7 +371,7 @@ def test(
         """Run the test message."""
         import os
 
-        from .meshcore_interface import ConnectionType, MeshCoreMessage
+        from .meshcore_interface import MeshCoreMessage
 
         # Check if API key is configured
         api_key = os.getenv("LLM_API_KEY")
@@ -390,7 +390,7 @@ def test(
             meshcore_connection_type=app_config.meshcore.connection_type,
             listen_channel=app_config.ai.listen_channel,
             max_message_length=app_config.ai.max_message_length,
-            custom_prompt=custom_prompt,
+            custom_prompt=custom_prompt_content,
             base_url=app_config.ai.base_url,
             node_name=app_config.meshcore.node_name,
             port=app_config.meshcore.port,
@@ -431,7 +431,7 @@ def test(
             except asyncio.TimeoutError:
                 logger.error("Message processing timed out after 30 seconds")
                 logger.warning("This may indicate an API connectivity issue")
-            except Exception as e:
+            except Exception:
                 # Error already logged by agent, just note it failed
                 pass
 

@@ -1,6 +1,5 @@
 """SQLite storage layer for MeshBot data."""
 
-import asyncio
 import logging
 import sqlite3
 import time
@@ -22,7 +21,14 @@ class MeshBotStorage:
         """
         self.db_path = db_path
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        self.conn: Optional[sqlite3.Connection] = None
+        self._conn: Optional[sqlite3.Connection] = None
+
+    @property
+    def conn(self) -> sqlite3.Connection:
+        """Get the database connection, ensuring it exists."""
+        if self._conn is None:
+            raise RuntimeError("Storage not initialized. Call initialize() first.")
+        return self._conn
 
     async def initialize(self) -> None:
         """Initialize database connection and create tables."""
@@ -30,8 +36,8 @@ class MeshBotStorage:
             # SQLite doesn't support async natively, but we can use run_in_executor
             # For simplicity, we'll use sync operations since SQLite is fast
             # check_same_thread=False allows the connection to be used across threads
-            self.conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
-            self.conn.row_factory = sqlite3.Row  # Enable column access by name
+            self._conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
+            self._conn.row_factory = sqlite3.Row  # Enable column access by name
 
             # Create tables
             self._create_tables()
@@ -177,9 +183,9 @@ class MeshBotStorage:
 
     async def close(self) -> None:
         """Close database connection."""
-        if self.conn:
-            self.conn.close()
-            self.conn = None
+        if self._conn:
+            self._conn.close()
+            self._conn = None
 
     # ========== Messages ==========
 
@@ -664,7 +670,7 @@ class MeshBotStorage:
             if exists:
                 # Update existing node
                 update_fields = ["last_seen = ?", "is_online = ?"]
-                params = [timestamp, 1 if is_online else 0]
+                params: list[Any] = [timestamp, 1 if is_online else 0]
 
                 if name:
                     update_fields.append("name = ?")

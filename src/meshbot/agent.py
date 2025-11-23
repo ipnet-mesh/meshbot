@@ -70,13 +70,34 @@ class MeshBotAgent:
             str
         ] = None  # Will be set to @nodename after initialization
 
-        # Initialize components
-        self.meshcore: Optional[MeshCoreInterface] = None
-        self.memory: Optional[MemoryManager] = None
-        self.agent: Optional[Agent[MeshBotDependencies, AgentResponse]] = None
+        # Initialize components (set via initialize())
+        self._meshcore: Optional[MeshCoreInterface] = None
+        self._memory: Optional[MemoryManager] = None
+        self._agent: Optional[Agent[MeshBotDependencies, AgentResponse]] = None
         self._own_public_key: Optional[str] = None
 
         self._running = False
+
+    @property
+    def meshcore(self) -> MeshCoreInterface:
+        """Get MeshCore interface, ensuring it's initialized."""
+        if self._meshcore is None:
+            raise RuntimeError("Agent not initialized. Call initialize() first.")
+        return self._meshcore
+
+    @property
+    def memory(self) -> MemoryManager:
+        """Get memory manager, ensuring it's initialized."""
+        if self._memory is None:
+            raise RuntimeError("Agent not initialized. Call initialize() first.")
+        return self._memory
+
+    @property
+    def agent(self) -> Agent[MeshBotDependencies, AgentResponse]:
+        """Get Pydantic AI agent, ensuring it's initialized."""
+        if self._agent is None:
+            raise RuntimeError("Agent not initialized. Call initialize() first.")
+        return self._agent
 
     async def initialize(self) -> None:
         """Initialize all components."""
@@ -97,12 +118,12 @@ class MeshBotAgent:
         from .meshcore_interface import ConnectionType
 
         connection_type = ConnectionType(self.meshcore_connection_type)
-        self.meshcore = create_meshcore_interface(
+        self._meshcore = create_meshcore_interface(
             connection_type, **self.meshcore_kwargs
         )
 
         # Initialize memory manager with SQLite storage
-        self.memory = MemoryManager(
+        self._memory = MemoryManager(
             storage_path=self.memory_path or Path("data"),  # SQLite database directory
             max_lines=1000,  # Max messages in conversation context
         )
@@ -146,7 +167,7 @@ class MeshBotAgent:
             logger.info(f"Using custom LLM base URL: {self.base_url}")
 
         # Create Pydantic AI agent
-        self.agent = Agent(
+        self._agent = Agent(
             self.model,
             deps_type=MeshBotDependencies,
             output_type=AgentResponse,
@@ -282,7 +303,7 @@ class MeshBotAgent:
         # Split into chunks on word boundaries
         words = message.split()
         chunks = []
-        current_chunk = []
+        current_chunk: list[str] = []
         current_length = 0
 
         for word in words:
@@ -611,14 +632,13 @@ class MeshBotAgent:
             success = await self.meshcore.send_message(destination, message)
             if success:
                 # Store sent message in memory
-                sent_message = MeshCoreMessage(
-                    sender="meshbot",
-                    sender_name="MeshBot",
+                await self.memory.add_message(
+                    user_id=destination,
+                    role="assistant",
                     content=message,
-                    timestamp=asyncio.get_event_loop().time(),
                     message_type="direct",
+                    timestamp=asyncio.get_event_loop().time(),
                 )
-                await self.memory.add_message(sent_message, is_from_user=False)
 
             return success
         except Exception as e:

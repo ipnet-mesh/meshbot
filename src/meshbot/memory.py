@@ -1,9 +1,8 @@
 """Memory management for MeshBot with SQLite storage."""
 
-import asyncio
 import logging
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from .storage import MeshBotStorage
 
@@ -128,7 +127,7 @@ class MemoryManager:
         """
         return await self.get_conversation_context(user_id, "direct", limit)
 
-    async def get_user_memory(self, user_id: str) -> Dict[str, any]:
+    async def get_user_memory(self, user_id: str) -> Dict[str, Any]:
         """
         Get basic info about a user based on their conversation stats.
 
@@ -154,7 +153,7 @@ class MemoryManager:
                 "last_seen": None,
             }
 
-    async def get_statistics(self) -> Dict[str, any]:
+    async def get_statistics(self) -> Dict[str, Any]:
         """Get memory statistics."""
         try:
             stats = await self.storage.get_all_statistics()
