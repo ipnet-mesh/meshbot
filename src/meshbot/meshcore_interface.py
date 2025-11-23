@@ -282,7 +282,7 @@ class RealMeshCoreInterface(MeshCoreInterface):
         # SQLite storage for network events and node names
         from .storage import MeshBotStorage
 
-        db_path = Path("data") / "meshbot.db"
+        db_path = Path("data")
         self._storage = MeshBotStorage(db_path)
 
     async def connect(self) -> None:

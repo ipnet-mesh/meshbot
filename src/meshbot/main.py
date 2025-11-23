@@ -469,8 +469,8 @@ def test(
 @click.option(
     "--db-path",
     type=click.Path(exists=True, path_type=Path),
-    default=Path("data/meshbot.db"),
-    help="Path to SQLite database file (default: data/meshbot.db)",
+    default=Path("data"),
+    help="Path to data files (default: data/)",
 )
 @click.option(
     "--table",

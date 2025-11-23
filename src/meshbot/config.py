@@ -76,7 +76,7 @@ class MemoryConfig:
     """Configuration for memory management."""
 
     storage_path: Path = field(
-        default_factory=lambda: Path(os.getenv("MEMORY_PATH", "data/meshbot.db"))
+        default_factory=lambda: Path(os.getenv("MEMORY_PATH", "data"))
     )
 
 
