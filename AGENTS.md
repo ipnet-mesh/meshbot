@@ -113,7 +113,7 @@ pytest tests/test_basic.py -v
    - **Utility tools**: calculate, get_current_time, search_history, get_bot_status
    - **Fun tools**: roll_dice, flip_coin, random_number, magic_8ball
    - **Network/mesh tools**: status_request, get_contacts, get_user_info, get_conversation_history
-   - **Query tools**: search_network_events, search_all_messages (for historical searches)
+   - **Query tools**: search_messages (for historical searches)
    - Dependency injection system
    - Structured responses
    - Automatic message splitting for MeshCore length limits
@@ -334,8 +334,7 @@ The agent currently has the following tools implemented in `src/meshbot/agent.py
 - `get_conversation_history`: Retrieve recent messages with a user
 
 **Query Tools** (Historical Data):
-- `search_network_events`: Search non-advertisement network events (PATH_UPDATE, STATUS_RESPONSE, etc.)
-- `search_all_messages`: Search messages across all conversations
+- `search_messages`: Search messages across all conversations
 - `search_adverts`: Search advertisement history with filters (node_id, time range)
 - `get_node_info`: Get detailed info about a specific mesh node (status, activity, stats)
 - `list_nodes`: List all known nodes with filters (online_only, has_name)
@@ -349,7 +348,7 @@ The agent includes network situational awareness implemented in `src/meshbot/mes
 - Advertisements logged to dedicated `adverts` table
 - Other events logged to `network_events` table
 - Events indexed for fast queries by event type, node, and time
-- Queryable via dedicated tools (`search_adverts`, `search_network_events`)
+- Queryable via dedicated tool (`search_adverts`)
 
 **Node Registry**:
 - Central node registry in `nodes` table with comprehensive tracking
