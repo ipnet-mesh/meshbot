@@ -927,7 +927,7 @@ class MeshBotAgent:
             from pydantic_ai import UsageLimits
 
             usage_limits = UsageLimits(
-                request_limit=5,  # Max 5 LLM requests per message (includes tool calls)
+                request_limit=20,  # Max 20 LLM requests per message (includes tool calls)
             )
             result = await self.agent.run(prompt, deps=deps, usage_limits=usage_limits)
 
