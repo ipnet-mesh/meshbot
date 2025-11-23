@@ -513,54 +513,6 @@ docker-compose logs -f
 docker-compose down
 ```
 
-#### Using Docker with systemd
-
-Create `/etc/systemd/system/meshbot.service`:
-
-```ini
-[Unit]
-Description=MeshBot AI Agent (Docker)
-After=docker.service
-Requires=docker.service
-
-[Service]
-Type=simple
-User=meshbot
-WorkingDirectory=/opt/meshbot
-EnvironmentFile=/etc/meshbot/environment
-ExecStartPre=-/usr/bin/docker stop meshbot
-ExecStartPre=-/usr/bin/docker rm meshbot
-ExecStart=/usr/bin/docker run --rm --name meshbot \
-  --device=/dev/ttyUSB0 \
-  -v /opt/meshbot/logs:/app/logs \
-  --env-file /etc/meshbot/environment \
-  ghcr.io/ipnet-mesh/meshbot:latest
-ExecStop=/usr/bin/docker stop meshbot
-Restart=always
-RestartSec=10
-
-[Install]
-WantedBy=multi-user.target
-```
-
-Create `/etc/meshbot/environment`:
-```bash
-LLM_MODEL=openai:gpt-4o-mini
-LLM_API_KEY=your_key_here
-MESHCORE_CONNECTION_TYPE=serial
-MESHCORE_PORT=/dev/ttyUSB0
-ACTIVATION_PHRASE=@bot
-MAX_MESSAGE_LENGTH=120
-LOG_LEVEL=INFO
-```
-
-Enable and start:
-```bash
-sudo systemctl enable meshbot
-sudo systemctl start meshbot
-sudo systemctl status meshbot
-```
-
 ### Alternative: Direct Installation
 
 For production use with real MeshCore hardware without Docker:
@@ -587,45 +539,6 @@ export MESHCORE_PORT=/dev/ttyUSB0
 export ACTIVATION_PHRASE=@meshbot
 export MAX_MESSAGE_LENGTH=120
 export LOG_LEVEL=INFO
-```
-
-### Systemd Service (Non-Docker)
-
-Create `/etc/systemd/system/meshbot.service`:
-
-```ini
-[Unit]
-Description=MeshBot AI Agent
-After=network.target
-
-[Service]
-Type=simple
-User=meshbot
-WorkingDirectory=/opt/meshbot
-Environment=PYTHONPATH=/opt/meshbot/src
-EnvironmentFile=/etc/meshbot/environment
-ExecStart=/opt/meshbot/.venv/bin/meshbot --meshcore-type serial
-Restart=always
-RestartSec=10
-
-[Install]
-WantedBy=multi-user.target
-```
-
-Create `/etc/meshbot/environment`:
-```
-LLM_MODEL=openai:gpt-4o-mini
-LLM_API_KEY=your_key_here
-MESHCORE_PORT=/dev/ttyUSB0
-ACTIVATION_PHRASE=@bot
-MAX_MESSAGE_LENGTH=120
-```
-
-Enable and start:
-```bash
-sudo systemctl enable meshbot
-sudo systemctl start meshbot
-sudo systemctl status meshbot
 ```
 
 ## Troubleshooting
