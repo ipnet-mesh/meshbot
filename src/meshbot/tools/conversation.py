@@ -51,21 +51,62 @@ def register_conversation_tools(agent: Any) -> None:
             return f"Status request to {destination} failed"
 
     @tool()
-    async def get_conversation_history(
-        ctx: RunContext[Any], user_id: str, limit: int = 5
+    async def get_channel_messages(
+        ctx: RunContext[Any], channel: str = "0", limit: int = 5
     ) -> str:
-        """Get recent conversation history with a user."""
-        try:
-            history = await ctx.deps.memory.get_conversation_history(user_id, limit)
-            if not history:
-                return "No conversation history with this user."
+        """Get recent messages from a channel.
 
-            response = "Recent conversation:\n"
-            for msg in history:
-                role = "User" if msg["role"] == "user" else "Assistant"
+        Args:
+            channel: Channel number (default: "0" for main channel)
+            limit: Number of recent messages to retrieve (default: 5)
+
+        Returns:
+            Recent channel messages in time order
+        """
+        try:
+            # Get messages from channel
+            messages = await ctx.deps.memory.storage.get_conversation_messages(
+                conversation_id=channel, limit=limit
+            )
+            if not messages:
+                return f"No messages in channel {channel}."
+
+            response = f"Last {len(messages)} message(s) in channel {channel}:\n"
+            for msg in messages:
+                role = "User" if msg["role"] == "user" else "Bot"
                 response += f"{role}: {msg['content']}\n"
 
             return response.strip()
         except Exception as e:
-            logger.error(f"Error getting conversation history: {e}")
-            return "Error retrieving conversation history."
+            logger.error(f"Error getting channel messages: {e}")
+            return f"Error retrieving messages from channel {channel}."
+
+    @tool()
+    async def get_user_messages(
+        ctx: RunContext[Any], user_id: str, limit: int = 5
+    ) -> str:
+        """Get recent private messages with a specific user.
+
+        Args:
+            user_id: User's public key (full or first 8-16 characters)
+            limit: Number of recent messages to retrieve (default: 5)
+
+        Returns:
+            Recent private messages with the user in time order
+        """
+        try:
+            messages = await ctx.deps.memory.storage.get_conversation_messages(
+                conversation_id=user_id, limit=limit
+            )
+            if not messages:
+                return f"No conversation history with user {user_id[:16]}..."
+
+            response = f"Last {len(messages)} message(s) with {user_id[:16]}:\n"
+            for msg in messages:
+                role = "User" if msg["role"] == "user" else "Bot"
+                response += f"{role}: {msg['content']}\n"
+
+            return response.strip()
+        except Exception as e:
+            logger.error(f"Error getting user messages: {e}")
+            return f"Error retrieving messages with user {user_id[:16]}..."
