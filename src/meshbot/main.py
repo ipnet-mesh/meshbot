@@ -58,11 +58,11 @@ def cli() -> None:
     "--max-message-length", type=int, help="Maximum message length in characters"
 )
 @click.option(
-    "--meshcore-type",
+    "--meshcore-connection-type",
     type=click.Choice(["mock", "serial", "tcp", "ble"]),
     help="MeshCore connection type",
 )
-@click.option("--node-name", help="Node name to advertise on the mesh network")
+@click.option("--meshcore-node-name", help="Node name to advertise on the mesh network")
 @click.option("--meshcore-port", help="Serial port for MeshCore connection")
 @click.option("--meshcore-host", help="TCP host for MeshCore connection")
 @click.option("--meshcore-address", help="BLE address for MeshCore connection")
@@ -91,8 +91,8 @@ def run(
     model: Optional[str],
     listen_channel: Optional[str],
     max_message_length: Optional[int],
-    meshcore_type: Optional[str],
-    node_name: Optional[str],
+    meshcore_connection_type: Optional[str],
+    meshcore_node_name: Optional[str],
     meshcore_port: Optional[str],
     meshcore_host: Optional[str],
     meshcore_address: Optional[str],
@@ -135,10 +135,10 @@ def run(
             app_config.ai.custom_prompt_file = custom_prompt
 
         # MeshCore configuration
-        if meshcore_type:
-            app_config.meshcore.connection_type = meshcore_type
-        if node_name:
-            app_config.meshcore.node_name = node_name
+        if meshcore_connection_type:
+            app_config.meshcore.connection_type = meshcore_connection_type
+        if meshcore_node_name:
+            app_config.meshcore.node_name = meshcore_node_name
         if meshcore_port:
             app_config.meshcore.port = meshcore_port
         if meshcore_host:
@@ -241,12 +241,12 @@ async def run_agent(agent: MeshBotAgent) -> None:
     "--max-message-length", type=int, help="Maximum message length in characters"
 )
 @click.option(
-    "--meshcore-type",
+    "--meshcore-connection-type",
     type=click.Choice(["mock", "serial", "tcp", "ble"]),
     default="mock",
     help="MeshCore connection type (default: mock)",
 )
-@click.option("--node-name", help="Node name to advertise on the mesh network")
+@click.option("--meshcore-node-name", help="Node name to advertise on the mesh network")
 @click.option("--meshcore-port", help="Serial port for MeshCore connection")
 @click.option("--meshcore-host", help="TCP host for MeshCore connection")
 @click.option("--meshcore-address", help="BLE address for MeshCore connection")
@@ -276,8 +276,8 @@ def test(
     model: Optional[str],
     listen_channel: Optional[str],
     max_message_length: Optional[int],
-    meshcore_type: str,
-    node_name: Optional[str],
+    meshcore_connection_type: str,
+    meshcore_node_name: Optional[str],
     meshcore_port: Optional[str],
     meshcore_host: Optional[str],
     meshcore_address: Optional[str],
@@ -319,9 +319,9 @@ def test(
             app_config.ai.custom_prompt_file = custom_prompt
 
         # MeshCore configuration
-        app_config.meshcore.connection_type = meshcore_type
-        if node_name:
-            app_config.meshcore.node_name = node_name
+        app_config.meshcore.connection_type = meshcore_connection_type
+        if meshcore_node_name:
+            app_config.meshcore.node_name = meshcore_node_name
         if meshcore_port:
             app_config.meshcore.port = meshcore_port
         if meshcore_host:

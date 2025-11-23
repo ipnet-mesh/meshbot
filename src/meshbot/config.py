@@ -127,39 +127,6 @@ class MeshBotConfig:
     memory: MemoryConfig = field(default_factory=MemoryConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
 
-    @classmethod
-    def from_file(cls, config_path: Optional[Path]) -> "MeshBotConfig":
-        """Load configuration from JSON file."""
-        import json
-
-        if not config_path or not config_path.exists():
-            return cls()
-
-        with open(str(config_path), "r") as f:
-            data = json.load(f)
-
-        return cls(
-            meshcore=MeshCoreConfig(**data.get("meshcore", {})),
-            ai=AIConfig(**data.get("ai", {})),
-            memory=MemoryConfig(**data.get("memory", {})),
-            logging=LoggingConfig(**data.get("logging", {})),
-        )
-
-    def to_file(self, config_path: Path) -> None:
-        """Save configuration to JSON file."""
-        import json
-
-        data = {
-            "meshcore": self.meshcore.__dict__,
-            "ai": self.ai.__dict__,
-            "memory": self.memory.__dict__,
-            "logging": self.logging.__dict__,
-        }
-
-        config_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(str(config_path), "w") as f:
-            json.dump(data, f, indent=2)
-
     def validate(self) -> None:
         """Validate configuration."""
         # Validate MeshCore config

@@ -24,7 +24,7 @@ USER meshbot
 
 # Default command (can be overridden)
 ENTRYPOINT ["meshbot"]
-CMD ["run", "--meshcore-type", "mock"]
+CMD ["run", "--meshcore-connection-type", "mock"]
 
 LABEL org.opencontainers.image.source="https://github.com/ipnet-mesh/meshbot"
 LABEL org.opencontainers.image.description="AI agent for MeshCore network communication"
