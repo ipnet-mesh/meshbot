@@ -5,6 +5,8 @@ from typing import Any, Optional
 
 from pydantic_ai import RunContext
 
+from .logging_wrapper import create_logging_tool_decorator
+
 logger = logging.getLogger(__name__)
 
 try:
@@ -19,8 +21,10 @@ def register_weather_tool(agent: Any) -> None:
     Args:
         agent: The Pydantic AI agent to register tools with
     """
+    # Create logging tool decorator
+    tool = create_logging_tool_decorator(agent)
 
-    @agent.tool
+    @tool()
     async def get_weather(
         ctx: RunContext[Any],
         latitude: Optional[float] = None,
@@ -40,9 +44,6 @@ def register_weather_tool(agent: Any) -> None:
         Returns:
             Concise weather summary with forecast
         """
-        logger.info(
-            f"🌤️ TOOL CALL: get_weather(lat={latitude}, lon={longitude}, days={forecast_days})"
-        )
         try:
             import os
 
@@ -133,9 +134,6 @@ def register_weather_tool(agent: Any) -> None:
                             f"{forecast_summary.strip()}"
                         )
 
-                        logger.info(
-                            f"🌤️ TOOL RESULT: get_weather -> {len(result)} chars"
-                        )
                         return result.strip()
             except Exception as http_err:
                 logger.error(f"🌐 HTTP request failed: {http_err}")

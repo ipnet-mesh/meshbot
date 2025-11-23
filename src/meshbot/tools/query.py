@@ -5,6 +5,8 @@ from typing import Any, Optional
 
 from pydantic_ai import RunContext
 
+from .logging_wrapper import create_logging_tool_decorator
+
 logger = logging.getLogger(__name__)
 
 
@@ -14,8 +16,10 @@ def register_query_tools(agent: Any) -> None:
     Args:
         agent: The Pydantic AI agent to register tools with
     """
+    # Create logging tool decorator
+    tool = create_logging_tool_decorator(agent)
 
-    @agent.tool
+    @tool()
     async def search_messages(
         ctx: RunContext[Any],
         keyword: str,
@@ -75,7 +79,7 @@ def register_query_tools(agent: Any) -> None:
             logger.error(f"Error searching messages: {e}")
             return "Error searching messages"
 
-    @agent.tool
+    @tool()
     async def list_adverts(
         ctx: RunContext[Any],
         node_id: Optional[str] = None,
@@ -141,7 +145,7 @@ def register_query_tools(agent: Any) -> None:
             logger.error(f"Error searching adverts: {e}")
             return "Error searching advertisements"
 
-    @agent.tool
+    @tool()
     async def get_node_info(ctx: RunContext[Any], node_id: str) -> str:
         """Get detailed information about a specific mesh node.
 
@@ -191,7 +195,7 @@ def register_query_tools(agent: Any) -> None:
             logger.error(f"Error getting node info: {e}")
             return "Error retrieving node information"
 
-    @agent.tool
+    @tool()
     async def list_nodes(
         ctx: RunContext[Any],
         online_only: bool = False,

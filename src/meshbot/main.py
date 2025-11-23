@@ -74,9 +74,7 @@ def cli() -> None:
     help="Enable/disable MeshCore auto-reconnect",
 )
 @click.option("--meshcore-timeout", type=int, help="MeshCore timeout in seconds")
-@click.option(
-    "--data-dir", type=click.Path(path_type=Path), help="Data directory path"
-)
+@click.option("--data-dir", type=click.Path(path_type=Path), help="Data directory path")
 @click.option(
     "--custom-prompt",
     type=click.Path(exists=True, path_type=Path),
@@ -260,9 +258,7 @@ async def run_agent(agent: MeshBotAgent) -> None:
     help="Enable/disable MeshCore auto-reconnect",
 )
 @click.option("--meshcore-timeout", type=int, help="MeshCore timeout in seconds")
-@click.option(
-    "--data-dir", type=click.Path(path_type=Path), help="Data directory path"
-)
+@click.option("--data-dir", type=click.Path(path_type=Path), help="Data directory path")
 @click.option(
     "--custom-prompt",
     type=click.Path(exists=True, path_type=Path),

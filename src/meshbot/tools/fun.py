@@ -5,6 +5,8 @@ from typing import Any
 
 from pydantic_ai import RunContext
 
+from .logging_wrapper import create_logging_tool_decorator
+
 logger = logging.getLogger(__name__)
 
 
@@ -14,8 +16,10 @@ def register_fun_tools(agent: Any) -> None:
     Args:
         agent: The Pydantic AI agent to register tools with
     """
+    # Create logging tool decorator
+    tool = create_logging_tool_decorator(agent)
 
-    @agent.tool
+    @tool()
     async def roll_dice(ctx: RunContext[Any], count: int = 1, sides: int = 6) -> str:
         """Roll dice and return the results.
 
@@ -47,7 +51,7 @@ def register_fun_tools(agent: Any) -> None:
             logger.error(f"Error rolling dice: {e}")
             return "Error rolling dice"
 
-    @agent.tool
+    @tool()
     async def flip_coin(ctx: RunContext[Any]) -> str:
         """Flip a coin and return the result.
 
@@ -63,7 +67,7 @@ def register_fun_tools(agent: Any) -> None:
             logger.error(f"Error flipping coin: {e}")
             return "Error flipping coin"
 
-    @agent.tool
+    @tool()
     async def random_number(
         ctx: RunContext[Any],
         min_value: int = 1,
@@ -93,7 +97,7 @@ def register_fun_tools(agent: Any) -> None:
             logger.error(f"Error generating random number: {e}")
             return "Error generating random number"
 
-    @agent.tool
+    @tool()
     async def magic_8ball(ctx: RunContext[Any], question: str) -> str:
         """Ask the magic 8-ball a yes/no question.
 
