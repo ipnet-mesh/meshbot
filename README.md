@@ -2,6 +2,72 @@
 
 MeshBot is an intelligent AI agent that communicates through the MeshCore network using Pydantic AI as its framework. It maintains conversation history with users through simple text file logs and handles both direct messages and channel communications with automatic message length management for MeshCore's constraints.
 
+## 🐳 Quick Start with Docker (Recommended)
+
+The easiest way to run MeshBot is using our Docker image:
+
+```bash
+# Pull the latest image
+docker pull ghcr.io/ipnet-mesh/meshbot:latest
+
+# Run with mock connection (for testing)
+docker run -it --rm \
+  -e LLM_API_KEY=your_api_key_here \
+  -e LLM_MODEL=openai:gpt-4o-mini \
+  -e MESHCORE_CONNECTION_TYPE=mock \
+  ghcr.io/ipnet-mesh/meshbot:latest
+
+# Run with serial connection (real hardware)
+docker run -it --rm \
+  --device=/dev/ttyUSB0 \
+  -v $(pwd)/logs:/app/logs \
+  -e LLM_API_KEY=your_api_key_here \
+  -e LLM_MODEL=openai:gpt-4o-mini \
+  -e MESHCORE_CONNECTION_TYPE=serial \
+  -e MESHCORE_PORT=/dev/ttyUSB0 \
+  ghcr.io/ipnet-mesh/meshbot:latest
+
+# Run with custom configuration via .env file
+docker run -it --rm \
+  --env-file .env \
+  -v $(pwd)/logs:/app/logs \
+  ghcr.io/ipnet-mesh/meshbot:latest
+```
+
+### Docker Environment Variables
+
+All configuration is done via environment variables (see full list in [Configuration](#configuration)):
+
+```bash
+# Required
+LLM_API_KEY=your_api_key_here
+LLM_MODEL=openai:gpt-4o-mini
+
+# MeshCore Connection
+MESHCORE_CONNECTION_TYPE=mock  # or serial, tcp, ble
+MESHCORE_PORT=/dev/ttyUSB0     # for serial
+# MESHCORE_HOST=192.168.1.100  # for TCP
+
+# Optional
+ACTIVATION_PHRASE=@bot
+LISTEN_CHANNEL=0
+MAX_MESSAGE_LENGTH=120
+LOG_LEVEL=INFO
+```
+
+### Docker Volumes
+
+Mount volumes to persist logs and use custom prompts:
+
+```bash
+docker run -it --rm \
+  -v $(pwd)/logs:/app/logs \
+  -v $(pwd)/my_prompt.txt:/app/custom_prompt.txt \
+  -e CUSTOM_PROMPT_FILE=/app/custom_prompt.txt \
+  --env-file .env \
+  ghcr.io/ipnet-mesh/meshbot:latest
+```
+
 ## Features
 
 - **🤖 AI-Powered**: Built with Pydantic AI for structured, type-safe agent development
@@ -17,7 +83,9 @@ MeshBot is an intelligent AI agent that communicates through the MeshCore networ
 - **🎯 Message Routing**: Intelligent DM and channel message handling with activation phrases
 - **🔌 OpenAI-Compatible**: Works with any OpenAI-compatible endpoint (OpenAI, Groq, Ollama, etc.)
 
-## Quick Start
+## Alternative: Install from Source
+
+For development or if you prefer not to use Docker:
 
 ### Installation
 
@@ -396,9 +464,106 @@ See `AGENTS.md` for full development workflow including:
 
 ## Production Deployment
 
-### Real MeshCore Connection
+### Docker Deployment (Recommended)
 
-For production use with real MeshCore hardware:
+The recommended way to deploy MeshBot in production is using Docker:
+
+#### Using Docker Compose
+
+Create a `docker-compose.yml`:
+
+```yaml
+version: '3.8'
+
+services:
+  meshbot:
+    image: ghcr.io/ipnet-mesh/meshbot:latest
+    container_name: meshbot
+    restart: unless-stopped
+    devices:
+      - /dev/ttyUSB0:/dev/ttyUSB0  # For serial connection
+    volumes:
+      - ./logs:/app/logs
+      - ./custom_prompt.txt:/app/custom_prompt.txt:ro  # Optional
+    environment:
+      - LLM_MODEL=openai:gpt-4o-mini
+      - LLM_API_KEY=${LLM_API_KEY}
+      - MESHCORE_CONNECTION_TYPE=serial
+      - MESHCORE_PORT=/dev/ttyUSB0
+      - ACTIVATION_PHRASE=@bot
+      - MAX_MESSAGE_LENGTH=120
+      - LOG_LEVEL=INFO
+    # Optionally use env_file instead:
+    # env_file:
+    #   - .env
+```
+
+Run with:
+```bash
+# Create .env file with your secrets
+echo "LLM_API_KEY=your_key_here" > .env
+
+# Start the service
+docker-compose up -d
+
+# View logs
+docker-compose logs -f
+
+# Stop the service
+docker-compose down
+```
+
+#### Using Docker with systemd
+
+Create `/etc/systemd/system/meshbot.service`:
+
+```ini
+[Unit]
+Description=MeshBot AI Agent (Docker)
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=simple
+User=meshbot
+WorkingDirectory=/opt/meshbot
+EnvironmentFile=/etc/meshbot/environment
+ExecStartPre=-/usr/bin/docker stop meshbot
+ExecStartPre=-/usr/bin/docker rm meshbot
+ExecStart=/usr/bin/docker run --rm --name meshbot \
+  --device=/dev/ttyUSB0 \
+  -v /opt/meshbot/logs:/app/logs \
+  --env-file /etc/meshbot/environment \
+  ghcr.io/ipnet-mesh/meshbot:latest
+ExecStop=/usr/bin/docker stop meshbot
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Create `/etc/meshbot/environment`:
+```bash
+LLM_MODEL=openai:gpt-4o-mini
+LLM_API_KEY=your_key_here
+MESHCORE_CONNECTION_TYPE=serial
+MESHCORE_PORT=/dev/ttyUSB0
+ACTIVATION_PHRASE=@bot
+MAX_MESSAGE_LENGTH=120
+LOG_LEVEL=INFO
+```
+
+Enable and start:
+```bash
+sudo systemctl enable meshbot
+sudo systemctl start meshbot
+sudo systemctl status meshbot
+```
+
+### Alternative: Direct Installation
+
+For production use with real MeshCore hardware without Docker:
 
 ```bash
 # Serial connection
@@ -424,7 +589,7 @@ export MAX_MESSAGE_LENGTH=120
 export LOG_LEVEL=INFO
 ```
 
-### Systemd Service
+### Systemd Service (Non-Docker)
 
 Create `/etc/systemd/system/meshbot.service`:
 
