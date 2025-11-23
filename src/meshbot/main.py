@@ -517,8 +517,15 @@ def dump(db_path: Path, table: str, limit: int) -> None:
                 click.echo("(empty)\n")
                 continue
 
-            # Fetch rows
-            cursor.execute(f"SELECT * FROM {table_name} ORDER BY id DESC LIMIT {limit}")
+            # Fetch rows (node_names doesn't have id column, uses pubkey as PK)
+            if table_name == "node_names":
+                cursor.execute(
+                    f"SELECT * FROM {table_name} ORDER BY timestamp DESC LIMIT {limit}"
+                )
+            else:
+                cursor.execute(
+                    f"SELECT * FROM {table_name} ORDER BY id DESC LIMIT {limit}"
+                )
             rows = cursor.fetchall()
 
             if table_name == "messages":
