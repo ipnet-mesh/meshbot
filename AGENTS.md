@@ -4,7 +4,8 @@ This document outlines the development workflow and rules for the MeshBot projec
 
 ## Requirements
 
-* MUST activate or create virtual environment at `.venv` in project root
+* MUST use Python 3.12 specifically
+* MUST activate or create Python 3.12 virtual environment at `.venv` in project root
 * MUST install development dependencies with `pip install -e ".[dev]"`
 * MUST install `pre-commit` and setup hooks with `pre-commit install`
 * MUST run `pre-commit` checks before committing code
