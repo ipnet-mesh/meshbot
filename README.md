@@ -23,7 +23,7 @@ MeshBot is an intelligent AI agent that communicates through the MeshCore networ
 
 ```bash
 # Clone the repository
-git clone <repository-url>
+git clone https://github.com/ipnet-mesh/meshbot.git
 cd meshbot
 
 # Create virtual environment
@@ -519,7 +519,7 @@ See `AGENTS.md` for detailed development guidelines.
 
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+This project is licensed under the GNU General Public License v3.0 - see the LICENSE file for details.
 
 ## Acknowledgments
 

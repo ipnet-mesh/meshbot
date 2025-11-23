@@ -7,12 +7,14 @@ name = "meshbot"
 version = "0.1.0"
 description = "AI agent for MeshCore network communication"
 readme = "README.md"
-authors = [{name = "MeshBot", email = "contact@example.com"}]
-license = {text = "MIT"}
+authors = [{name = "IPNet Mesh", email = "info@ipnt.uk"}]
+license = {text = "GPL-3.0-or-later"}
+keywords = ["ai", "mesh-network", "meshcore", "chatbot", "agent"]
+urls = {Homepage = "https://github.com/ipnet-mesh/meshbot", Repository = "https://github.com/ipnet-mesh/meshbot", Issues = "https://github.com/ipnet-mesh/meshbot/issues"}
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
+    "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
