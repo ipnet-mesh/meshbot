@@ -42,6 +42,12 @@ class MeshCoreConfig:
     timeout: int = field(
         default_factory=lambda: int(os.getenv("MESHCORE_TIMEOUT", "30"))
     )
+    message_delay: float = field(
+        default_factory=lambda: float(os.getenv("MESHCORE_MESSAGE_DELAY", "3.0"))
+    )
+    message_retry_count: int = field(
+        default_factory=lambda: int(os.getenv("MESHCORE_MESSAGE_RETRY", "1"))
+    )
 
 
 @dataclass

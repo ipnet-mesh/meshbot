@@ -55,6 +55,8 @@ class MeshBotAgent:
         base_url: Optional[str] = None,
         max_message_length: int = 120,
         node_name: Optional[str] = None,
+        message_delay: float = 3.0,
+        message_retry_count: int = 1,
         **meshcore_kwargs,
     ):
         self.model = model
@@ -65,6 +67,8 @@ class MeshBotAgent:
         self.base_url = base_url
         self.max_message_length = max_message_length
         self.node_name = node_name
+        self.message_delay = message_delay
+        self.message_retry_count = message_retry_count
         self.meshcore_kwargs = meshcore_kwargs
         self._mention_name: Optional[
             str
@@ -517,14 +521,42 @@ class MeshBotAgent:
                 )
                 logger.info(f"Message chunks: {message_chunks}")
 
-                # Send all chunks
+                # Send all chunks with retry logic
                 for i, chunk in enumerate(message_chunks):
                     logger.info(f"Sending chunk {i+1}/{len(message_chunks)}: {chunk}")
-                    await self.meshcore.send_message(destination, chunk)
 
-                    # Small delay between messages to avoid flooding
+                    # Try sending with retries
+                    success = False
+                    for attempt in range(self.message_retry_count + 1):
+                        if attempt > 0:
+                            retry_delay = 2.0 ** attempt  # Exponential backoff: 2s, 4s, 8s...
+                            logger.warning(
+                                f"Retry attempt {attempt}/{self.message_retry_count} after {retry_delay}s delay"
+                            )
+                            await asyncio.sleep(retry_delay)
+
+                        success = await self.meshcore.send_message(destination, chunk)
+
+                        if success:
+                            logger.debug(f"Chunk {i+1}/{len(message_chunks)} sent successfully")
+                            break
+                        else:
+                            logger.warning(
+                                f"Failed to send chunk {i+1}/{len(message_chunks)} (attempt {attempt+1}/{self.message_retry_count+1})"
+                            )
+
+                    if not success:
+                        logger.error(
+                            f"Failed to send chunk {i+1}/{len(message_chunks)} after {self.message_retry_count+1} attempts"
+                        )
+                        # Continue trying to send remaining chunks even if one fails
+
+                    # Delay between messages to respect LoRa duty cycle
                     if i < len(message_chunks) - 1:
-                        await asyncio.sleep(0.5)
+                        logger.debug(
+                            f"Waiting {self.message_delay}s before next chunk (LoRa duty cycle)"
+                        )
+                        await asyncio.sleep(self.message_delay)
 
                 # Store assistant response in memory (original full response)
                 # For channels, use channel as user_id; for DMs, use sender
