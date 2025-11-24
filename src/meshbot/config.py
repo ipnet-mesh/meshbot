@@ -21,6 +21,9 @@ class MeshCoreConfig:
     node_name: Optional[str] = field(
         default_factory=lambda: os.getenv("MESHCORE_NODE_NAME", "MeshBot")
     )
+    listen_channel: str = field(
+        default_factory=lambda: os.getenv("MESHCORE_LISTEN_CHANNEL", "0")
+    )
     port: Optional[str] = field(default_factory=lambda: os.getenv("MESHCORE_PORT"))
     baudrate: int = field(
         default_factory=lambda: int(os.getenv("MESHCORE_BAUDRATE", "115200"))
@@ -51,16 +54,13 @@ class AIConfig:
     api_key: Optional[str] = field(default_factory=lambda: os.getenv("LLM_API_KEY"))
     base_url: Optional[str] = field(default_factory=lambda: os.getenv("LLM_BASE_URL"))
     max_tokens: int = field(
-        default_factory=lambda: int(os.getenv("AI_MAX_TOKENS", "500"))
+        default_factory=lambda: int(os.getenv("LLM_MAX_TOKENS", "500"))
     )
     temperature: float = field(
-        default_factory=lambda: float(os.getenv("AI_TEMPERATURE", "0.7"))
-    )
-    listen_channel: str = field(
-        default_factory=lambda: os.getenv("LISTEN_CHANNEL", "0")
+        default_factory=lambda: float(os.getenv("LLM_TEMPERATURE", "0.7"))
     )
     max_message_length: int = field(
-        default_factory=lambda: int(os.getenv("MAX_MESSAGE_LENGTH", "120"))
+        default_factory=lambda: int(os.getenv("LLM_MAX_MESSAGE_LENGTH", "120"))
     )
     system_prompt_file: Optional[Path] = field(default=None)
 

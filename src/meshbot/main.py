@@ -130,7 +130,7 @@ def run(
         if llm_prompt:
             app_config.ai.system_prompt_file = llm_prompt
         if listen_channel:
-            app_config.ai.listen_channel = listen_channel
+            app_config.meshcore.listen_channel = listen_channel
         if max_message_length:
             app_config.ai.max_message_length = max_message_length
 
@@ -167,7 +167,7 @@ def run(
         model=app_config.ai.model,
         data_dir=app_config.memory.storage_path,
         meshcore_connection_type=app_config.meshcore.connection_type,
-        listen_channel=app_config.ai.listen_channel,
+        listen_channel=app_config.meshcore.listen_channel,
         system_prompt_file=app_config.ai.system_prompt_file,
         max_message_length=app_config.ai.max_message_length,
         base_url=app_config.ai.base_url,
@@ -304,7 +304,7 @@ def test(
         if llm_prompt:
             app_config.ai.system_prompt_file = llm_prompt
         if listen_channel:
-            app_config.ai.listen_channel = listen_channel
+            app_config.meshcore.listen_channel = listen_channel
         if max_message_length:
             app_config.ai.max_message_length = max_message_length
 
@@ -364,7 +364,7 @@ def test(
             model=app_config.ai.model,
             data_dir=app_config.memory.storage_path,
             meshcore_connection_type=app_config.meshcore.connection_type,
-            listen_channel=app_config.ai.listen_channel,
+            listen_channel=app_config.meshcore.listen_channel,
             system_prompt_file=app_config.ai.system_prompt_file,
             max_message_length=app_config.ai.max_message_length,
             base_url=app_config.ai.base_url,
