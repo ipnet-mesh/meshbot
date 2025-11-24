@@ -206,11 +206,13 @@ marimo/_static/
 marimo/_lsp/
 __marimo__/
 
-# MeshBot specific data files
-# Ignore data directory except for system_prompt.txt
-data/*
-!data/system_prompt.txt
-# Ignore node and channel data directories
-data/nodes/
-data/channels/
+# MeshBot specific files
+# Ignore all data files (user data, messages, adverts)
+data/
+
+# Ignore custom prompts but track default prompt
+prompts/*
+!prompts/default.md
+
+# Ignore logs
 logs/

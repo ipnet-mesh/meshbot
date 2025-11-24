@@ -73,7 +73,7 @@ docker run -it --rm \
 - **📡 MeshCore Integration**: Communicates via MeshCore network (serial, TCP, BLE, or mock)
 - **🧠 Simple Memory System**: Text file-based chat logs (1000 lines per conversation)
 - **💬 Smart Messaging**: Automatic message splitting with length limits (configurable, default 120 chars)
-- **🔧 Rich Tool System**: Utility tools (calculator, time, history) and fun tools (dice, coin, 8-ball, random numbers)
+- **🔧 Rich Tool System**: Utility tools (calculator, time, bot status) and fun tools (dice, coin, 8-ball, random numbers)
 - **🌐 Network Awareness**: Real-time tracking of mesh network events (adverts, contacts, paths, status)
 - **👥 Contact Tracking**: Automatic node name discovery and mapping from mesh advertisements
 - **📊 Situational Context**: Network events and node names included in LLM context for awareness
@@ -182,9 +182,9 @@ meshbot
 
 3. **AI Agent** (`agent.py`)
    - Pydantic AI agent with rich tool set
-   - Utility tools (calculate, time, search history, bot status)
+   - Utility tools (calculate, time, bot status)
    - Fun tools (dice, coin, random numbers, magic 8-ball)
-   - Network/mesh tools (status requests, contact management)
+   - Network/mesh tools (contact management, conversation history, node queries)
    - Structured responses with message splitting
    - API request limits (max 5 per message)
    - Network context injection for situational awareness
@@ -364,7 +364,6 @@ The agent has access to three categories of built-in tools:
 ### Utility Tools
 - **Calculate**: Perform mathematical calculations (e.g., "calculate 25 * 4 + 10")
 - **Get Current Time**: Get the current date and time
-- **Search History**: Search conversation history for specific topics
 - **Get Bot Status**: Check bot uptime and connection status
 
 ### Fun Tools
@@ -374,10 +373,12 @@ The agent has access to three categories of built-in tools:
 - **Magic 8-Ball**: Ask the magic 8-ball for wisdom
 
 ### Network/Mesh Tools
-- **Status Request**: Send status request to nodes (ping equivalent)
 - **Get Contacts**: List available MeshCore contacts with their names
-- **Get User Info**: Retrieve user statistics from chat logs
-- **Conversation History**: Access recent messages with a user
+- **Get Channel Messages**: Retrieve recent messages from a channel
+- **Get User Messages**: Access recent private messages with a user
+- **Get Node Info**: Get detailed information about a specific mesh node
+- **List Nodes**: List all known nodes with optional filters
+- **List Adverts**: Search advertisement history with filters
 
 ### Network Awareness
 The agent automatically receives context about:

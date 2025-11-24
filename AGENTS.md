@@ -111,10 +111,10 @@ pytest tests/test_basic.py -v
 
 2. **AI Agent** (`src/meshbot/agent.py`)
    - Pydantic AI agent with rich tool set
-   - **Utility tools**: calculate, get_current_time, search_history, get_bot_status
+   - **Utility tools**: calculate, get_current_time, get_bot_status
    - **Fun tools**: roll_dice, flip_coin, random_number, magic_8ball
-   - **Network/mesh tools**: status_request, get_contacts, get_user_info, get_conversation_history
-   - **Query tools**: search_messages (for historical searches)
+   - **Network/mesh tools**: get_contacts, get_conversation_history
+   - **Query tools**: search_adverts, get_node_info, list_nodes (for historical network data)
    - Dependency injection system
    - Structured responses
    - Automatic message splitting for MeshCore length limits
@@ -128,7 +128,7 @@ pytest tests/test_basic.py -v
 3. **Memory System** (`src/meshbot/memory.py` + `src/meshbot/storage.py`)
    - File-based storage using text files and CSV
    - Data stored in `data/` directory
-   - System prompt in `data/system_prompt.txt` (editable)
+   - System prompt in `prompts/default.md` (editable, configurable via `LLM_PROMPT_FILE` env var or `--llm-prompt` CLI arg)
    - Network adverts in `data/adverts.csv` (append-only)
    - Per-user message history in `data/{pubkey}_messages.txt`
    - Per-user memories in `data/{pubkey}_memory.json`
@@ -224,8 +224,8 @@ pytest tests/ -k "integration" -v
 # Test CLI with mock connection
 meshbot test user1 "hello" --meshcore-connection-type mock
 
-# Test with custom prompt file
-meshbot test user1 "hello" --custom-prompt my_prompt.txt --meshcore-connection-type mock
+# Test with custom system prompt file
+meshbot test user1 "hello" --llm-prompt my_prompt.md --meshcore-connection-type mock
 
 # Test with custom node name
 meshbot test user1 "hello" --meshcore-node-name TestBot --meshcore-connection-type mock
@@ -253,8 +253,9 @@ meshbot/
 │   ├── storage.py         # File-based storage layer
 │   ├── config.py          # Configuration management
 │   └── main.py           # CLI entry point
+├── prompts/               # System prompts directory
+│   └── default.md         # Default system prompt (tracked in git)
 ├── data/                  # Data directory (auto-created)
-│   ├── system_prompt.txt  # System prompt (tracked in git)
 │   ├── adverts.csv        # Network advertisements (gitignored)
 │   ├── {pubkey}_messages.txt  # Message history per user (gitignored)
 │   └── {pubkey}_memory.json   # User memories per user (gitignored)
@@ -324,7 +325,6 @@ The agent currently has the following tools implemented in `src/meshbot/agent.py
 **Utility Tools**:
 - `calculate`: Perform mathematical calculations using Python's eval (safely)
 - `get_current_time`: Return current date and time
-- `search_history`: Search conversation history for keywords
 - `get_bot_status`: Return bot uptime and connection status
 
 **Fun Tools**:
@@ -334,13 +334,10 @@ The agent currently has the following tools implemented in `src/meshbot/agent.py
 - `magic_8ball`: Ask the magic 8-ball for wisdom
 
 **Network/Mesh Tools**:
-- `status_request`: Send status request to a node (ping equivalent)
 - `get_contacts`: List all MeshCore contacts with names
-- `get_user_info`: Get user statistics from chat logs
 - `get_conversation_history`: Retrieve recent messages with a user
 
 **Query Tools** (Historical Data):
-- `search_messages`: Search messages across all conversations
 - `search_adverts`: Search advertisement history with filters (node_id, time range)
 - `get_node_info`: Get detailed info about a specific mesh node (status, activity, stats)
 - `list_nodes`: List all known nodes with filters (online_only, has_name)
@@ -383,16 +380,16 @@ The agent includes network situational awareness implemented in `src/meshbot/mes
 
 ### Modifying Memory System
 The memory system uses file-based storage in the `data/` directory:
-- **System prompt**: `data/system_prompt.txt` - editable system prompt for the agent
+- **System prompt**: `prompts/default.md` - editable system prompt for the agent (Markdown format, configurable)
 - **Adverts file**: `data/adverts.csv` - network advertisements (append-only CSV)
 - **Message files**: `data/{pubkey}_messages.txt` - message history per user (pipe-delimited)
 - **Memory files**: `data/{pubkey}_memory.json` - user memories and metadata per user (JSON)
 
-**File Formats** (see `src/meshbot/storage.py`):
-- **system_prompt.txt**: Plain text, editable system prompt loaded on startup
-- **adverts.csv**: CSV with columns: timestamp, node_id, node_name, signal_strength, details
-- **{pubkey}_messages.txt**: Pipe-delimited: timestamp|message_type|role|content|sender
-- **{pubkey}_memory.json**: JSON with fields: name, is_online, first_seen, last_seen, last_advert, total_adverts
+**File Formats**:
+- **prompts/default.md**: Markdown format system prompt loaded on startup (see `src/meshbot/agent.py`)
+- **adverts.csv**: CSV with columns: timestamp, node_id, node_name, signal_strength, details (see `src/meshbot/storage.py`)
+- **{pubkey}_messages.txt**: Pipe-delimited: timestamp|message_type|role|content|sender (see `src/meshbot/storage.py`)
+- **{pubkey}_memory.json**: JSON with fields: name, is_online, first_seen, last_seen, last_advert, total_adverts (see `src/meshbot/storage.py`)
 
 **Efficiency**:
 - Adverts: Only reads last N lines using deque (efficient for large files)
@@ -410,7 +407,7 @@ To modify:
 2. Update `src/meshbot/memory.py` for interface changes
 3. Update `src/meshbot/meshcore_interface.py` for event handling
 4. Update `src/meshbot/agent.py` for new tools
-5. Edit `data/system_prompt.txt` to customize agent behavior
+5. Edit `prompts/default.md` to customize agent behavior (or create custom prompt and use `--llm-prompt` or `LLM_PROMPT_FILE` env var)
 6. Update documentation if interface changes
 
 ## 🚨 Troubleshooting

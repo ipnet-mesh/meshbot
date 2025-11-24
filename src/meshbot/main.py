@@ -53,6 +53,11 @@ def cli() -> None:
 
 @cli.command()
 @click.option("--model", "-m", help="AI model to use (e.g., openai:gpt-4o-mini)")
+@click.option(
+    "--llm-prompt",
+    type=click.Path(exists=True, path_type=Path),
+    help="Path to system prompt file (default: prompts/default.md)",
+)
 @click.option("--listen-channel", help="Channel to listen to (e.g., 0 for General)")
 @click.option(
     "--max-message-length", type=int, help="Maximum message length in characters"
@@ -76,11 +81,6 @@ def cli() -> None:
 @click.option("--meshcore-timeout", type=int, help="MeshCore timeout in seconds")
 @click.option("--data-dir", type=click.Path(path_type=Path), help="Data directory path")
 @click.option(
-    "--custom-prompt",
-    type=click.Path(exists=True, path_type=Path),
-    help="Path to custom prompt file",
-)
-@click.option(
     "-v",
     "--verbose",
     count=True,
@@ -89,6 +89,7 @@ def cli() -> None:
 @click.option("--log-file", type=click.Path(path_type=Path), help="Log file path")
 def run(
     model: Optional[str],
+    llm_prompt: Optional[Path],
     listen_channel: Optional[str],
     max_message_length: Optional[int],
     meshcore_connection_type: Optional[str],
@@ -101,7 +102,6 @@ def run(
     meshcore_auto_reconnect: Optional[bool],
     meshcore_timeout: Optional[int],
     data_dir: Optional[Path],
-    custom_prompt: Optional[Path],
     verbose: int,
     log_file: Optional[Path],
 ) -> None:
@@ -127,12 +127,12 @@ def run(
         # AI configuration
         if model:
             app_config.ai.model = model
+        if llm_prompt:
+            app_config.ai.system_prompt_file = llm_prompt
         if listen_channel:
-            app_config.ai.listen_channel = listen_channel
+            app_config.meshcore.listen_channel = listen_channel
         if max_message_length:
             app_config.ai.max_message_length = max_message_length
-        if custom_prompt:
-            app_config.ai.custom_prompt_file = custom_prompt
 
         # MeshCore configuration
         if meshcore_connection_type:
@@ -162,24 +162,14 @@ def run(
         logger.error(f"Error loading configuration: {e}")
         sys.exit(1)
 
-    # Load custom prompt if provided
-    custom_prompt_content: Optional[str] = None
-    if app_config.ai.custom_prompt_file and app_config.ai.custom_prompt_file.exists():
-        try:
-            with open(app_config.ai.custom_prompt_file, "r", encoding="utf-8") as f:
-                custom_prompt_content = f.read().strip()
-            logger.info(f"Loaded custom prompt from {app_config.ai.custom_prompt_file}")
-        except Exception as e:
-            logger.warning(f"Failed to load custom prompt: {e}")
-
     # Create and run agent
     agent = MeshBotAgent(
         model=app_config.ai.model,
         data_dir=app_config.memory.storage_path,
         meshcore_connection_type=app_config.meshcore.connection_type,
-        listen_channel=app_config.ai.listen_channel,
+        listen_channel=app_config.meshcore.listen_channel,
+        system_prompt_file=app_config.ai.system_prompt_file,
         max_message_length=app_config.ai.max_message_length,
-        custom_prompt=custom_prompt_content,
         base_url=app_config.ai.base_url,
         node_name=app_config.meshcore.node_name,
         port=app_config.meshcore.port,
@@ -236,6 +226,11 @@ async def run_agent(agent: MeshBotAgent) -> None:
 @click.argument("from_id")
 @click.argument("message")
 @click.option("--model", "-m", help="AI model to use (e.g., openai:gpt-4o-mini)")
+@click.option(
+    "--llm-prompt",
+    type=click.Path(exists=True, path_type=Path),
+    help="Path to system prompt file (default: prompts/default.md)",
+)
 @click.option("--listen-channel", help="Channel to listen to (e.g., 0 for General)")
 @click.option(
     "--max-message-length", type=int, help="Maximum message length in characters"
@@ -260,11 +255,6 @@ async def run_agent(agent: MeshBotAgent) -> None:
 @click.option("--meshcore-timeout", type=int, help="MeshCore timeout in seconds")
 @click.option("--data-dir", type=click.Path(path_type=Path), help="Data directory path")
 @click.option(
-    "--custom-prompt",
-    type=click.Path(exists=True, path_type=Path),
-    help="Path to custom prompt file",
-)
-@click.option(
     "-v",
     "--verbose",
     count=True,
@@ -274,6 +264,7 @@ def test(
     from_id: str,
     message: str,
     model: Optional[str],
+    llm_prompt: Optional[Path],
     listen_channel: Optional[str],
     max_message_length: Optional[int],
     meshcore_connection_type: str,
@@ -286,7 +277,6 @@ def test(
     meshcore_auto_reconnect: Optional[bool],
     meshcore_timeout: Optional[int],
     data_dir: Optional[Path],
-    custom_prompt: Optional[Path],
     verbose: int,
 ) -> None:
     """Send a test message simulating a message from FROM_ID.
@@ -311,12 +301,12 @@ def test(
         # AI configuration
         if model:
             app_config.ai.model = model
+        if llm_prompt:
+            app_config.ai.system_prompt_file = llm_prompt
         if listen_channel:
-            app_config.ai.listen_channel = listen_channel
+            app_config.meshcore.listen_channel = listen_channel
         if max_message_length:
             app_config.ai.max_message_length = max_message_length
-        if custom_prompt:
-            app_config.ai.custom_prompt_file = custom_prompt
 
         # MeshCore configuration
         app_config.meshcore.connection_type = meshcore_connection_type
@@ -352,16 +342,6 @@ def test(
     setup_logging(level)
     logger = logging.getLogger(__name__)
 
-    # Load custom prompt if provided
-    custom_prompt_content: Optional[str] = None
-    if app_config.ai.custom_prompt_file and app_config.ai.custom_prompt_file.exists():
-        try:
-            with open(app_config.ai.custom_prompt_file, "r", encoding="utf-8") as f:
-                custom_prompt_content = f.read().strip()
-            logger.info(f"Loaded custom prompt from {app_config.ai.custom_prompt_file}")
-        except Exception as e:
-            logger.warning(f"Failed to load custom prompt: {e}")
-
     # Create and run test
     async def run_test():
         """Run the test message."""
@@ -384,9 +364,9 @@ def test(
             model=app_config.ai.model,
             data_dir=app_config.memory.storage_path,
             meshcore_connection_type=app_config.meshcore.connection_type,
-            listen_channel=app_config.ai.listen_channel,
+            listen_channel=app_config.meshcore.listen_channel,
+            system_prompt_file=app_config.ai.system_prompt_file,
             max_message_length=app_config.ai.max_message_length,
-            custom_prompt=custom_prompt_content,
             base_url=app_config.ai.base_url,
             node_name=app_config.meshcore.node_name,
             port=app_config.meshcore.port,

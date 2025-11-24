@@ -63,7 +63,9 @@ class NodeStorage(BaseStorage):
             Friendly name if found, None otherwise
         """
         try:
-            memory_file = self._get_user_memory_file(pubkey)
+            # Use path-only version to avoid creating directory
+            node_dir = self._get_node_dir_path(pubkey)
+            memory_file = node_dir / "node.json"
 
             if not memory_file.exists():
                 return None
@@ -210,7 +212,9 @@ class NodeStorage(BaseStorage):
             Node dict or None if not found
         """
         try:
-            memory_file = self._get_user_memory_file(pubkey)
+            # Use path-only version to avoid creating directory
+            node_dir = self._get_node_dir_path(pubkey)
+            memory_file = node_dir / "node.json"
 
             if not memory_file.exists():
                 return None
