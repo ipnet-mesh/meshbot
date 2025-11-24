@@ -64,7 +64,7 @@ def register_network_tools(agent: Any) -> None:
             timeout: Maximum time to wait for responses in seconds (default: 10s)
 
         Returns:
-            Trace results showing path and latency information
+            Trace results showing path and signal information
         """
         try:
             if path:
@@ -81,20 +81,16 @@ def register_network_tools(agent: Any) -> None:
                 return f"✗ No trace responses received within {timeout}s\n(Device may be busy, disconnected, or path unreachable)"
 
             # Format responses
-            msg = f"✓ Trace complete - {len(responses)} hop(s)\n"
+            msg = f"✓ Trace complete\n"
             msg += "Path:\n"
 
             for i, response in enumerate(responses):
-                # Extract info from response payload
-                hop_num = response.get("hop", i)
-                node_id = response.get("node", response.get("node_id", "unknown"))
-                latency = response.get("latency_ms", response.get("latency", "?"))
-
-                # Truncate node ID for display
-                if isinstance(node_id, str) and len(node_id) > 16:
-                    node_id = node_id[:16] + "..."
-
-                msg += f"  {hop_num}. {node_id} ({latency}ms)\n"
+                step_path = response.get("path", [])
+                for n, step in enumerate(step_path):
+                    hash = step.get("hash")
+                    snr = step.get("snr", "unknown")
+                    if hash:
+                        msg += f"{n + 1}. {hash} (SNR: {snr})\n"
 
             return msg.rstrip()
 
