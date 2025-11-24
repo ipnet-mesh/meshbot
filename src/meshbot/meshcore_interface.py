@@ -449,6 +449,9 @@ class RealMeshCoreInterface(MeshCoreInterface):
             True if message was sent successfully, False otherwise
         """
         if not self._connected or not self._meshcore:
+            logger.warning(
+                f"Cannot send message - not connected (connected={self._connected}, meshcore={self._meshcore is not None})"
+            )
             return False
 
         try:
@@ -461,18 +464,32 @@ class RealMeshCoreInterface(MeshCoreInterface):
             ):
                 # Send to channel
                 channel_id = int(destination)
-                logger.debug(f"Sending to channel {channel_id}")
+                logger.debug(
+                    f"Sending to channel {channel_id}: {message[:50]}{'...' if len(message) > 50 else ''}"
+                )
                 result = await self._meshcore.commands.send_chan_msg(
                     channel_id, message
                 )
             else:
                 # Send direct message to contact (public key)
-                logger.debug(f"Sending direct message to {destination[:16]}...")
+                logger.debug(
+                    f"Sending direct message to {destination[:16]}...: {message[:50]}{'...' if len(message) > 50 else ''}"
+                )
                 result = await self._meshcore.commands.send_msg(destination, message)
 
-            return result is not None
+            if result is not None:
+                logger.debug(f"Message sent successfully to {destination}")
+                return True
+            else:
+                logger.warning(
+                    f"Message send returned None (possible queue full or radio busy) - destination: {destination}"
+                )
+                return False
+
         except Exception as e:
-            logger.error(f"Failed to send message: {e}")
+            logger.error(
+                f"Failed to send message to {destination}: {type(e).__name__}: {e}"
+            )
             return False
 
     async def get_contacts(self) -> List[MeshCoreContact]:

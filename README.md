@@ -317,7 +317,13 @@ LISTEN_CHANNEL=0              # Which channel to monitor
 
 # Message length
 MAX_MESSAGE_LENGTH=120        # Character limit per message chunk
+
+# LoRa duty cycle compliance (prevents message loss)
+MESHCORE_MESSAGE_DELAY=5.0    # Delay between message chunks (seconds)
+MESHCORE_MESSAGE_RETRY=1      # Number of retry attempts for failed sends
 ```
+
+**Note**: The `MESHCORE_MESSAGE_DELAY` setting is critical for reliable message delivery over LoRa. LoRa radios have duty cycle restrictions (e.g., 1% in Europe requires ~50 seconds of wait time after a 500ms transmission). The default 5.0 second delay provides a safe balance between speed and reliability. Reduce to 2-3 seconds for less restrictive regions (US), or increase to 7-10 seconds for very strict requirements.
 
 ## Chat Logs
 
