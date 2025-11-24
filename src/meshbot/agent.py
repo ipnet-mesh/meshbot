@@ -55,7 +55,7 @@ class MeshBotAgent:
         base_url: Optional[str] = None,
         max_message_length: int = 120,
         node_name: Optional[str] = None,
-        message_delay: float = 3.0,
+        message_delay: float = 5.0,
         message_retry_count: int = 1,
         **meshcore_kwargs,
     ):

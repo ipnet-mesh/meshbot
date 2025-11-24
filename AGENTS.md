@@ -124,6 +124,8 @@ pytest tests/test_basic.py -v
    - API request limits (max 5 requests per message via UsageLimits)
    - Network context injection (last 5 network events included in prompts)
    - Graceful handling of usage limit errors
+   - **LoRa duty cycle compliance** - configurable delay between message chunks (default: 5.0s)
+   - **Retry logic** - automatic retry with exponential backoff for failed message sends (default: 1 retry)
 
 3. **Memory System** (`src/meshbot/memory.py` + `src/meshbot/storage.py`)
    - File-based storage using text files and CSV
@@ -370,6 +372,14 @@ The agent includes network situational awareness implemented in `src/meshbot/mes
 - UsageLimits set to max 20 requests per message
 - Graceful error handling for usage limit exceeded
 - Prevents runaway API costs from excessive tool calling
+
+**LoRa Duty Cycle Management** (`src/meshbot/agent.py`):
+- Configurable message delay between chunks (default: 5.0s)
+- Environment variable: `MESHCORE_MESSAGE_DELAY` (default: 5.0 seconds)
+- Respects LoRa duty cycle restrictions (1% in Europe requires ~50s wait after 500ms message)
+- Automatic retry with exponential backoff (2s, 4s, 8s...) for failed sends
+- Environment variable: `MESHCORE_MESSAGE_RETRY` (default: 1 retry)
+- Enhanced error logging for debugging message delivery issues
 
 ### Adding New Configuration Option
 1. Add field to appropriate config class in `src/meshbot/config.py`
