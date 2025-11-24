@@ -613,6 +613,20 @@ class RealMeshCoreInterface(MeshCoreInterface):
             payload = event.payload
             logger.debug(f"Message payload: {payload}")
 
+            # INVESTIGATION: Log ALL available fields in payload
+            logger.info("="*80)
+            logger.info("MESSAGE PAYLOAD INVESTIGATION")
+            logger.info(f"Payload type: {type(payload)}")
+            logger.info(f"Payload keys: {list(payload.keys()) if hasattr(payload, 'keys') else 'N/A'}")
+            logger.info(f"Full payload contents: {payload}")
+
+            # Check if event object has additional fields
+            logger.info(f"Event type: {type(event)}")
+            logger.info(f"Event attributes: {dir(event)}")
+            if hasattr(event, '__dict__'):
+                logger.info(f"Event __dict__: {event.__dict__}")
+            logger.info("="*80)
+
             # Extract message fields from MeshCore event payload
             sender = payload.get("pubkey_prefix", "")
             content = payload.get("text", "")
