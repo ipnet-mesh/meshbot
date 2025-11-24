@@ -30,6 +30,7 @@ class MeshCoreMessage:
     timestamp: float
     message_type: str = "direct"  # direct, channel, broadcast
     channel: Optional[str] = None  # Channel ID or name (for channel messages)
+    path_len: Optional[int] = None  # Number of hops the message took (0 = direct)
 
 
 @dataclass
@@ -68,6 +69,13 @@ class MeshCoreInterface(ABC):
     @abstractmethod
     async def ping_node(self, destination: str) -> bool:
         """Ping a node to check connectivity."""
+        pass
+
+    @abstractmethod
+    async def send_trace(
+        self, path: Optional[str] = None, auth_code: Optional[int] = None
+    ) -> bool:
+        """Send trace packet for routing diagnostics."""
         pass
 
     @abstractmethod
@@ -189,6 +197,17 @@ class MockMeshCoreInterface(MeshCoreInterface):
 
         # Return True if node exists in contacts
         return destination in self._contacts
+
+    async def send_trace(
+        self, path: Optional[str] = None, auth_code: Optional[int] = None
+    ) -> bool:
+        """Mock send trace packet."""
+        if not self._connected:
+            return False
+
+        logger.info(f"Mock: Sending trace packet (path={path}, auth_code={auth_code})")
+        await asyncio.sleep(0.1)
+        return True
 
     async def sync_time(self) -> bool:
         """Mock sync companion node clock."""
@@ -525,6 +544,45 @@ class RealMeshCoreInterface(MeshCoreInterface):
             logger.error(f"Failed to send status request: {e}")
             return False
 
+    async def send_trace(
+        self, path: Optional[str] = None, auth_code: Optional[int] = None
+    ) -> bool:
+        """Send trace packet for routing diagnostics.
+
+        Args:
+            path: Optional comma-separated path of node IDs to trace through
+            auth_code: Optional authentication code for the trace
+
+        Returns:
+            True if trace was sent successfully, False otherwise
+        """
+        if not self._connected or not self._meshcore:
+            return False
+
+        try:
+            # Build trace command parameters
+            params = {}
+            if path is not None:
+                params["path"] = path
+            if auth_code is not None:
+                params["auth_code"] = auth_code
+
+            logger.info(f"Sending trace packet: {params if params else 'no parameters'}")
+
+            # Send trace command
+            result = await self._meshcore.commands.send_trace(**params)
+
+            if result is not None:
+                logger.info("Trace packet sent successfully")
+                return True
+            else:
+                logger.warning("Trace command returned None")
+                return False
+
+        except Exception as e:
+            logger.error(f"Failed to send trace: {type(e).__name__}: {e}")
+            return False
+
     def is_connected(self) -> bool:
         """Check if real MeshCore is connected."""
         return bool(self._connected and self._meshcore and self._meshcore.is_connected)
@@ -613,29 +671,16 @@ class RealMeshCoreInterface(MeshCoreInterface):
             payload = event.payload
             logger.debug(f"Message payload: {payload}")
 
-            # INVESTIGATION: Log ALL available fields in payload
-            logger.info("="*80)
-            logger.info("MESSAGE PAYLOAD INVESTIGATION")
-            logger.info(f"Payload type: {type(payload)}")
-            logger.info(f"Payload keys: {list(payload.keys()) if hasattr(payload, 'keys') else 'N/A'}")
-            logger.info(f"Full payload contents: {payload}")
-
-            # Check if event object has additional fields
-            logger.info(f"Event type: {type(event)}")
-            logger.info(f"Event attributes: {dir(event)}")
-            if hasattr(event, '__dict__'):
-                logger.info(f"Event __dict__: {event.__dict__}")
-            logger.info("="*80)
-
             # Extract message fields from MeshCore event payload
             sender = payload.get("pubkey_prefix", "")
             content = payload.get("text", "")
             sender_timestamp = payload.get("sender_timestamp", 0)
             msg_type = payload.get("type", "PRIV")
             channel = payload.get("channel", "0")  # Extract channel ID
+            path_len = payload.get("path_len")  # Number of hops the message took
 
             logger.info(
-                f"Processing message: sender={sender}, content='{content}', type={msg_type}, channel={channel}"
+                f"Processing message: sender={sender}, content='{content}', type={msg_type}, channel={channel}, path_len={path_len}"
             )
 
             # Map MeshCore message types to our types
@@ -652,6 +697,7 @@ class RealMeshCoreInterface(MeshCoreInterface):
                 ),
                 message_type=message_type,
                 channel=str(channel) if channel is not None else None,
+                path_len=path_len if path_len is not None else None,
             )
 
             logger.info(f"Created MeshCoreMessage: {message}")
