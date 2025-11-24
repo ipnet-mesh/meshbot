@@ -48,19 +48,23 @@ def register_network_tools(agent: Any) -> None:
 
     @tool()
     async def trace_path(
-        ctx: RunContext[Any], path: Optional[str] = None, auth_code: Optional[int] = None
+        ctx: RunContext[Any],
+        path: Optional[str] = None,
+        auth_code: Optional[int] = None,
+        timeout: float = 10.0,
     ) -> str:
         """Send a trace packet for mesh network routing diagnostics.
 
         This sends a trace packet through the mesh network to diagnose routing
-        and network topology. Like traceroute for mesh networks.
+        and network topology. Like traceroute for mesh networks. Waits for responses.
 
         Args:
             path: Optional comma-separated path of node IDs to trace through (e.g., "node1,node2,node3")
             auth_code: Optional authentication code for the trace
+            timeout: Maximum time to wait for responses in seconds (default: 10s)
 
         Returns:
-            Success/failure message about trace packet
+            Trace results showing path and latency information
         """
         try:
             if path:
@@ -68,16 +72,31 @@ def register_network_tools(agent: Any) -> None:
             else:
                 logger.info("Sending trace packet (automatic path)")
 
-            success = await ctx.deps.meshcore.send_trace(path=path, auth_code=auth_code)
+            # Send trace and wait for responses
+            responses = await ctx.deps.meshcore.send_trace_and_wait(
+                path=path, auth_code=auth_code, timeout=timeout
+            )
 
-            if success:
-                msg = "✓ Trace packet sent successfully"
-                if path:
-                    msg += f" (path: {path})"
-                msg += "\nWait for trace responses from nodes in the path."
-                return msg
-            else:
-                return "✗ Failed to send trace packet (device may be busy or disconnected)"
+            if not responses:
+                return f"✗ No trace responses received within {timeout}s\n(Device may be busy, disconnected, or path unreachable)"
+
+            # Format responses
+            msg = f"✓ Trace complete - {len(responses)} hop(s)\n"
+            msg += "Path:\n"
+
+            for i, response in enumerate(responses):
+                # Extract info from response payload
+                hop_num = response.get("hop", i)
+                node_id = response.get("node", response.get("node_id", "unknown"))
+                latency = response.get("latency_ms", response.get("latency", "?"))
+
+                # Truncate node ID for display
+                if isinstance(node_id, str) and len(node_id) > 16:
+                    node_id = node_id[:16] + "..."
+
+                msg += f"  {hop_num}. {node_id} ({latency}ms)\n"
+
+            return msg.rstrip()
 
         except Exception as e:
             logger.error(f"Error sending trace: {e}")

@@ -79,6 +79,25 @@ class MeshCoreInterface(ABC):
         pass
 
     @abstractmethod
+    async def send_trace_and_wait(
+        self,
+        path: Optional[str] = None,
+        auth_code: Optional[int] = None,
+        timeout: float = 10.0,
+    ) -> List[Dict[str, Any]]:
+        """Send trace packet and wait for responses.
+
+        Args:
+            path: Optional comma-separated path of node IDs
+            auth_code: Optional authentication code
+            timeout: Maximum time to wait for responses in seconds
+
+        Returns:
+            List of trace response payloads received within timeout
+        """
+        pass
+
+    @abstractmethod
     def is_connected(self) -> bool:
         """Check if connected to MeshCore device."""
         pass
@@ -209,6 +228,33 @@ class MockMeshCoreInterface(MeshCoreInterface):
         await asyncio.sleep(0.1)
         return True
 
+    async def send_trace_and_wait(
+        self,
+        path: Optional[str] = None,
+        auth_code: Optional[int] = None,
+        timeout: float = 10.0,
+    ) -> List[Dict[str, Any]]:
+        """Mock send trace and wait for responses."""
+        if not self._connected:
+            return []
+
+        logger.info(
+            f"Mock: Sending trace packet and waiting (path={path}, auth_code={auth_code}, timeout={timeout}s)"
+        )
+
+        # Simulate sending trace
+        await asyncio.sleep(0.1)
+
+        # Simulate mock trace responses
+        responses = [
+            {"hop": 0, "node": "local", "latency_ms": 0},
+            {"hop": 1, "node": "node1", "latency_ms": 45},
+            {"hop": 2, "node": "node2", "latency_ms": 92},
+        ]
+
+        await asyncio.sleep(0.5)  # Simulate response delay
+        return responses
+
     async def sync_time(self) -> bool:
         """Mock sync companion node clock."""
         if not self._connected:
@@ -297,6 +343,7 @@ class RealMeshCoreInterface(MeshCoreInterface):
         self._own_public_key: Optional[str] = None
         self._own_node_name: Optional[str] = None
         self._message_handlers: List[Callable[[MeshCoreMessage], Any]] = []
+        self._trace_responses: asyncio.Queue[Dict[str, Any]] = asyncio.Queue()
 
         # SQLite storage for network events and node names
         from .storage import MeshBotStorage
@@ -366,6 +413,15 @@ class RealMeshCoreInterface(MeshCoreInterface):
             )
             self._meshcore.subscribe(EventType.STATUS_RESPONSE, self._on_network_event)
             logger.info("Subscribed to network events for situational awareness")
+
+            # Subscribe to trace responses for diagnostic tools
+            try:
+                self._meshcore.subscribe(EventType.TRACE_DATA, self._on_trace_response)
+                logger.info("Subscribed to trace response events")
+            except AttributeError:
+                logger.warning(
+                    "TRACE_DATA event type not available in this meshcore version"
+                )
 
             # Sync node names from contacts list (leverages automatic contact discovery)
             await self._sync_node_names_from_contacts()
@@ -582,6 +638,68 @@ class RealMeshCoreInterface(MeshCoreInterface):
         except Exception as e:
             logger.error(f"Failed to send trace: {type(e).__name__}: {e}")
             return False
+
+    async def send_trace_and_wait(
+        self,
+        path: Optional[str] = None,
+        auth_code: Optional[int] = None,
+        timeout: float = 10.0,
+    ) -> List[Dict[str, Any]]:
+        """Send trace packet and wait for responses.
+
+        Args:
+            path: Optional comma-separated path of node IDs
+            auth_code: Optional authentication code
+            timeout: Maximum time to wait for responses in seconds
+
+        Returns:
+            List of trace response payloads received within timeout
+        """
+        if not self._connected or not self._meshcore:
+            return []
+
+        # Clear any old responses from queue
+        while not self._trace_responses.empty():
+            try:
+                self._trace_responses.get_nowait()
+            except asyncio.QueueEmpty:
+                break
+
+        # Send trace packet
+        success = await self.send_trace(path=path, auth_code=auth_code)
+        if not success:
+            logger.warning("Failed to send trace packet")
+            return []
+
+        logger.info(f"Waiting up to {timeout}s for trace responses...")
+
+        # Collect responses until timeout
+        responses = []
+        end_time = asyncio.get_event_loop().time() + timeout
+
+        try:
+            while True:
+                time_left = end_time - asyncio.get_event_loop().time()
+                if time_left <= 0:
+                    break
+
+                try:
+                    # Wait for next response with remaining timeout
+                    response = await asyncio.wait_for(
+                        self._trace_responses.get(), timeout=time_left
+                    )
+                    responses.append(response)
+                    logger.info(f"Received trace response {len(responses)}: {response}")
+
+                except asyncio.TimeoutError:
+                    # No more responses within timeout
+                    break
+
+        except Exception as e:
+            logger.error(f"Error collecting trace responses: {e}")
+
+        logger.info(f"Collected {len(responses)} trace response(s)")
+        return responses
 
     def is_connected(self) -> bool:
         """Check if real MeshCore is connected."""
@@ -915,6 +1033,21 @@ class RealMeshCoreInterface(MeshCoreInterface):
         except Exception as e:
             logger.error(f"Error getting network events: {e}")
             return []
+
+    async def _on_trace_response(self, event) -> None:
+        """Handle trace response events."""
+        try:
+            logger.info(f"Trace response received: {event}")
+            payload = event.payload if hasattr(event, "payload") else {}
+
+            # Add trace response to queue for waiting methods
+            await self._trace_responses.put(payload)
+
+            # Log trace response details
+            logger.info(f"Trace response payload: {payload}")
+
+        except Exception as e:
+            logger.error(f"Error processing trace response: {e}")
 
     async def _sync_node_names_from_contacts(self) -> None:
         """Sync node names from the contacts list.
