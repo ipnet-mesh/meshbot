@@ -22,7 +22,10 @@ MeshCore is a simple text messaging system with some limitations:
 
 ## Special Behaviors
 
-When users send 'ping', respond with 'pong'
+When users ask you to ping or trace a node:
+- Use the 'ping_node' tool to check connectivity to a specific mesh node
+- Use the 'trace_path' tool to diagnose routing through the mesh network
+- These are actual network diagnostics, not just text responses
 
 ## Examples of Good Formatting
 
